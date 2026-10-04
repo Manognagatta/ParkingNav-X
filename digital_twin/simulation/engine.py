@@ -1,56 +1,54 @@
 """
-Part 4 (+ Part 5's occupancy/queue refinements): deterministic discrete-time
-Simulation Engine.
+Simulation Engine: a small discrete-event simulator built on a heapq.
 
-Determinism is non-negotiable: one seeded random.Random instance is created
-per run and threaded through every random decision -- arrivals, gate/
-destination choice, dwell time. No unseeded randomness anywhere.
+How it works: every future happening is an event (time, kind, vehicle) in a
+priority queue. The engine pops the earliest event, updates the campus
+state and schedules what follows. The clock jumps from event to event, so
+1,000 vehicles take well under a second.
 
-The engine contains no allocation decision logic. It calls the injected
-AllocationStrategy exactly once per vehicle at the parking_search step, then
-enforces Part 1's real constraints itself (closed/full lot, closed/blocked
-road, gate throughput) regardless of what the strategy returned.
+One vehicle: ARRIVE at its gate -> FIFO gate queue (one vehicle admitted
+every `service_s` seconds) -> ADMIT: the strategy picks a lot -> drive ->
+REACH_LOT: park if there is really a space, else ask the strategy again (up
+to `max_lots_tried` lots) or leave -> stay for the dwell time -> LEAVE.
 
-Simplification, documented rather than hidden: road_load is attributed to a
-vehicle's route once, at the tick its transit begins, not re-added on every
-subsequent tick of a multi-minute transit. This keeps the per-timestep
-road_load metric transparent and deterministic; a finer-grained "vehicle is
-occupying this edge for N ticks" model is a drop-in replacement later.
+The engine, not the strategy, enforces the rules: closed or full lots take
+nobody, closed gates admit nobody, closed roads are not driven on.
+
+Randomness: one numpy SeedSequence per run, split into three streams
+(demand, dwell, forecast noise). The same seed gives the same vehicles for
+every strategy and forecast-error level, so comparisons are fair. Decision
+latency is wall-clock time, so it is reported apart from the seeded results.
 """
 
+import heapq
 import json
-import random
+import time
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Optional
 
 import networkx as nx
+import numpy as np
 
 from digital_twin.graph_service import CampusGraphService
 from digital_twin.simulation.scenario import ScenarioConfig
 from digital_twin.simulation.strategy import AllocationStrategy, CampusState, Vehicle
 from digital_twin.twin_service import DigitalTwinService
 
-DWELL_MINUTES_RANGE = (20, 180)
+# Why a vehicle's visit ended.
+PARKED = "parked"
+LEFT_ALL_FULL = "left_all_full"  # every lot it tried was full
+LEFT_NO_SPACE = "left_no_space"  # no lot showed space (or the strategy gave an invalid lot)
+LEFT_NO_ROUTE = "left_no_route"  # no drivable route from its gate to any lot
 
 
-@dataclass
-class _RunningVehicle:
-    vehicle: Vehicle
-    state: str = "arrival"  # arrival, gate_queue, campus_entry, route, parking_search,
-                              # parking_assignment, parked, departure, completed
-    queue_enter_tick: Optional[int] = None
-    gate_admitted_tick: Optional[int] = None
-    search_start_tick: Optional[int] = None
-    search_end_tick: Optional[int] = None
-    assigned_lot_id: Optional[str] = None
-    dwell_minutes: int = 0
-    remaining_transit_minutes: float = 0.0
-    outbound_route_computed: bool = False
-    outbound_distance_meters: float = 0.0
-    inbound_distance_meters: float = 0.0
-    completion_tick: Optional[int] = None
+def _rate_at(profile: dict, minutes: np.ndarray) -> np.ndarray:
+    """Relative arrival rate at each minute (constant, or linear between points)."""
+    if profile["type"] == "constant":
+        return np.full(len(minutes), float(profile["rate"]))
+    points = sorted(profile["points"], key=lambda p: p["time"])
+    return np.interp(minutes, [p["time"] for p in points], [p["rate"] for p in points])
 
 
 @dataclass
@@ -60,344 +58,362 @@ class SimulationResult:
     scenario_id: str
     random_seed: int
     strategy_name: str
-    vehicles: list = field(default_factory=list)     # list of per-vehicle metric dicts
-    timesteps: list = field(default_factory=list)    # list of per-timestep metric dicts
-    overflow_events: list = field(default_factory=list)
+    vehicles: list = field(default_factory=list)  # one row per vehicle
+    timesteps: list = field(default_factory=list)  # campus state at the end of each minute
+    overflow_events: list = field(default_factory=list)  # every failed parking attempt
+    summary: dict = field(default_factory=dict)
+    decision_latency_ms: list = field(default_factory=list)
 
 
-def _congestion_level(load: int, capacity) -> str:
-    """Matches Part 3's exact enum: free|moderate|heavy|blocked."""
-    if not capacity or capacity <= 0:
-        return "free"
-    ratio = load / capacity
-    if ratio == 0:
-        return "free"
-    if ratio < 0.5:
-        return "moderate"
-    if ratio < 1.0:
-        return "heavy"
-    return "blocked"
-
-
-def _arrival_rate_at(profile: dict, t: int) -> float:
-    if profile["type"] == "constant":
-        return profile["rate"]
-    points = sorted(profile["points"], key=lambda p: p["time"])
-    if t <= points[0]["time"]:
-        return points[0]["rate"]
-    if t >= points[-1]["time"]:
-        return points[-1]["rate"]
-    for i in range(len(points) - 1):
-        t0, t1 = points[i]["time"], points[i + 1]["time"]
-        if t0 <= t <= t1:
-            r0, r1 = points[i]["rate"], points[i + 1]["rate"]
-            frac = (t - t0) / (t1 - t0) if t1 != t0 else 0
-            return r0 + frac * (r1 - r0)
-    return points[-1]["rate"]
+@dataclass
+class _Car:
+    vehicle: Vehicle
+    arrival_s: float
+    admit_s: Optional[float] = None
+    parked_s: Optional[float] = None
+    target: Optional[str] = None
+    parked_lot: Optional[str] = None
+    tried: set = field(default_factory=set)
+    drive_m: float = 0.0
+    dwell_s: float = 0.0
+    outcome: Optional[str] = None
 
 
 class SimulationEngine:
-    def __init__(self, graph_service: Optional[CampusGraphService] = None,
-                 twin_service: Optional[DigitalTwinService] = None):
+    def __init__(self, graph_service=None, twin_service=None):
         self.graph_service = graph_service or CampusGraphService()
         self.twin_service = twin_service or DigitalTwinService()
 
-    def run(self, scenario: ScenarioConfig, strategy: AllocationStrategy, conn,
-            run_id: Optional[str] = None) -> SimulationResult:
-        rng = random.Random(scenario.random_seed)  # the ONE seeded RNG for this entire run
+    def run(
+        self,
+        scenario: ScenarioConfig,
+        strategy: AllocationStrategy,
+        conn,
+        run_id: Optional[str] = None,
+        persist: bool = True,
+    ) -> SimulationResult:
+        """Simulate one scenario with one strategy. Same seed -> same result.
+        persist=False skips the DB writes (used for fast multi-seed experiments)."""
+        self.sc, self.strategy = scenario, strategy
+        streams = np.random.SeedSequence(scenario.random_seed).spawn(3)
+        self.rng_demand, self.rng_dwell, self.rng_noise = map(np.random.default_rng, streams)
+        self._load_campus(conn)
 
-        run_id = run_id or f"{scenario.scenario_id}-{uuid.uuid4().hex[:8]}"
-        started_at = datetime.now(timezone.utc).isoformat()
-        strategy_name = f"{strategy.__class__.__module__}.{strategy.__class__.__name__}"
+        self.queue, self.seq = [], 0
+        self.overflow, self.latency_ms, self.timesteps = [], [], []
+        self.minute_overflow, self.minute_road_load = set(), dict.fromkeys(self.roads, 0)
+        self.violations = 0
 
-        conn.execute(
-            """INSERT INTO simulation_runs (run_id, campus_id, scenario_id, random_seed, strategy_name,
-                 configuration_version, started_at, status)
-               VALUES (?, ?, ?, ?, ?, (SELECT active_configuration_version FROM campuses WHERE campus_id=?), ?, 'running')""",
-            (run_id, scenario.campus_id, scenario.scenario_id, scenario.random_seed, strategy_name,
-             scenario.campus_id, started_at),
+        cars = self._generate_arrivals()
+        for car in cars:
+            self._push(car.arrival_s, "arrive", car)
+        minute = 0
+        while self.queue:
+            t, _, kind, car = heapq.heappop(self.queue)
+            while t >= (minute + 1) * 60:  # record every minute that ended before t
+                self._record_minute(minute)
+                minute += 1
+            getattr(self, f"_on_{kind}")(car, t)
+        if cars:
+            self._record_minute(minute)
+
+        rows = [self._row(c) for c in cars]
+        name = f"{strategy.__class__.__module__}.{strategy.__class__.__name__}"
+        result = SimulationResult(
+            run_id=run_id or f"{scenario.scenario_id}-{uuid.uuid4().hex[:8]}",
+            campus_id=scenario.campus_id,
+            scenario_id=scenario.scenario_id,
+            random_seed=scenario.random_seed,
+            strategy_name=name,
+            vehicles=rows,
+            timesteps=self.timesteps,
+            overflow_events=self.overflow,
+            summary=self._summary(rows),
+            decision_latency_ms=self.latency_ms,
         )
-        conn.commit()
+        if persist:
+            self._persist(result, cars, conn)
+        return result
 
-        graph = self.graph_service.build_graph(scenario.campus_id, conn)
-        working_graph = self._apply_availability_overrides(graph, scenario)
+    # ---------------------------------------------------------------- campus
+    def _load_campus(self, conn) -> None:
+        """Read gates, lots, roads, destinations and the event from the DB once,
+        apply the scenario's closures, and precompute shortest drives/walks."""
+        cid = self.sc.campus_id
+        closed = {"closed_gates": [], "closed_parking_lots": [], "closed_roads": [],
+                  **(self.sc.availability_overrides or {})}
 
-        gates = self._load_gates(scenario.campus_id, conn, scenario.availability_overrides)
-        parking_lots = self._load_parking_lots(scenario.campus_id, conn, scenario.availability_overrides)
-        destinations = self._load_destination_ids(scenario.campus_id, conn)
-        roads = self._load_roads(scenario.campus_id, conn)
+        def rows(table, key):
+            return conn.execute(f"SELECT * FROM {table} WHERE campus_id=? ORDER BY {key}", (cid,))
 
-        open_gate_ids = [g for g, d in gates.items() if d["status"] == "open"]
-        open_lot_ids = [p for p, d in parking_lots.items() if d["status"] == "open"]
-
-        running_vehicles = self._generate_arrivals(scenario, rng, open_gate_ids, destinations)
-        gate_queues = {g: [] for g in gates}  # FIFO lists of vehicle_ids
-        by_id = {rv.vehicle.vehicle_id: rv for rv in running_vehicles}
-
-        timesteps_metrics = []
-        overflow_events = []
-        road_load = {r: 0 for r in roads}
-
-        for tick in range(scenario.duration_minutes):
-            for rv in running_vehicles:
-                if rv.vehicle.arrival_tick == tick and rv.state == "arrival":
-                    if rv.vehicle.entry_gate in open_gate_ids:
-                        rv.state = "gate_queue"
-                        rv.queue_enter_tick = tick
-                        gate_queues[rv.vehicle.entry_gate].append(rv.vehicle.vehicle_id)
-                    else:
-                        rv.state = "completed"  # closed gate: never enters, matches spec's requirement
-
-            for gate_id in open_gate_ids:
-                throughput = gates[gate_id]["capacity"]
-                admitted = 0
-                queue = gate_queues[gate_id]
-                while queue and admitted < throughput:
-                    vehicle_id = queue.pop(0)  # FIFO
-                    rv = by_id[vehicle_id]
-                    rv.state = "campus_entry"
-                    rv.gate_admitted_tick = tick
-                    admitted += 1
-
-            for rv in running_vehicles:
-                if rv.state == "campus_entry":
-                    rv.state = "route"
-                elif rv.state == "route":
-                    lot_candidate = self._route_target(rv.vehicle.destination_id, destinations, parking_lots, open_lot_ids)
-                    if lot_candidate is None or not nx.has_path(working_graph, rv.vehicle.entry_gate, lot_candidate):
-                        rv.state = "completed"  # no feasible route at all
-                        continue
-                    path = nx.shortest_path(working_graph, rv.vehicle.entry_gate, lot_candidate, weight="weight_time_seconds")
-                    for a, b in zip(path, path[1:]):
-                        road_id = working_graph.edges[a, b].get("road_id")
-                        if road_id in road_load:
-                            road_load[road_id] += 1
-                    distance = nx.shortest_path_length(working_graph, rv.vehicle.entry_gate, lot_candidate, weight="weight_distance_meters")
-                    travel_time = nx.shortest_path_length(working_graph, rv.vehicle.entry_gate, lot_candidate, weight="weight_time_seconds")
-                    rv.remaining_transit_minutes = max(1.0, travel_time / 60.0)
-                    rv.outbound_distance_meters = distance
-                    rv.state = "parking_search"
-                    rv.search_start_tick = tick
-
-                elif rv.state == "parking_search":
-                    rv.remaining_transit_minutes -= 1
-                    if rv.remaining_transit_minutes > 0:
-                        continue
-
-                    state_view = CampusState(
-                        campus_id=scenario.campus_id, graph=working_graph,
-                        parking_lots={k: dict(v) for k, v in parking_lots.items()},
-                        gates={k: dict(v) for k, v in gates.items()},
-                        roads={k: dict(v) for k, v in roads.items()},
-                    )
-                    result = strategy.assign(rv.vehicle, state_view)
-                    rv.search_end_tick = tick
-
-                    lot = parking_lots.get(result.parking_lot_id) if result else None
-                    feasible = (
-                        lot is not None and lot["status"] == "open"
-                        and lot["occupied_spaces"] < lot["usable_capacity"]
-                    )
-
-                    if feasible:
-                        lot["occupied_spaces"] += 1
-                        rv.assigned_lot_id = result.parking_lot_id
-                        rv.dwell_minutes = rng.randint(*DWELL_MINUTES_RANGE)
-                        rv.remaining_transit_minutes = rv.dwell_minutes
-                        rv.state = "parked"
-                        self.twin_service.update_parking_state(
-                            scenario.campus_id, result.parking_lot_id, lot["occupied_spaces"],
-                            "simulation", "SYNTHETIC", datetime.now(timezone.utc).isoformat(), conn,
-                            commit=False,
-                        )
-                    else:
-                        requested_lot = result.parking_lot_id if result else None
-                        overflow_events.append({"tick": tick, "parking_lot_id": requested_lot})
-                        rv.state = "completed"  # failed assignment; not retried automatically (no decision logic here)
-
-                elif rv.state == "parked":
-                    rv.remaining_transit_minutes -= 1
-                    if rv.remaining_transit_minutes <= 0:
-                        lot = parking_lots[rv.assigned_lot_id]
-                        # Part 5's one intentional clamp: internal consistency guard only.
-                        lot["occupied_spaces"] = max(0, lot["occupied_spaces"] - 1)
-                        self.twin_service.update_parking_state(
-                            scenario.campus_id, rv.assigned_lot_id, lot["occupied_spaces"],
-                            "simulation", "SYNTHETIC", datetime.now(timezone.utc).isoformat(), conn,
-                            commit=False,
-                        )
-                        if nx.has_path(working_graph, rv.assigned_lot_id, rv.vehicle.entry_gate):
-                            distance = nx.shortest_path_length(working_graph, rv.assigned_lot_id, rv.vehicle.entry_gate, weight="weight_distance_meters")
-                            travel_time = nx.shortest_path_length(working_graph, rv.assigned_lot_id, rv.vehicle.entry_gate, weight="weight_time_seconds")
-                            rv.inbound_distance_meters = distance
-                            rv.remaining_transit_minutes = max(1.0, travel_time / 60.0)
-                        else:
-                            rv.remaining_transit_minutes = 1.0
-                        rv.state = "departure"
-
-                elif rv.state == "departure":
-                    rv.remaining_transit_minutes -= 1
-                    if rv.remaining_transit_minutes <= 0:
-                        rv.state = "completed"
-                        rv.completion_tick = tick
-
-            for gate_id, queue in gate_queues.items():
-                gates[gate_id]["queue_length"] = len(queue)
-
-            now_iso = datetime.now(timezone.utc).isoformat()
-            for gate_id, gate in gates.items():
-                self.twin_service.update_gate_state(
-                    scenario.campus_id, gate_id, gate["queue_length"], 0,
-                    "simulation", "SYNTHETIC", now_iso, conn, commit=False,
-                )
-            for road_id, load in road_load.items():
-                road_capacity = roads[road_id].get("capacity")
-                self.twin_service.update_road_state(
-                    scenario.campus_id, road_id, load, _congestion_level(load, road_capacity),
-                    "simulation", "SYNTHETIC", now_iso, conn, commit=False,
-                )
-            for rv in running_vehicles:
-                if rv.state not in ("arrival",):  # only persist vehicles that have actually started their lifecycle
-                    self.twin_service.update_vehicle_state(
-                        scenario.campus_id, rv.vehicle.vehicle_id, rv.state, "simulation", now_iso, conn,
-                        destination_id=rv.vehicle.destination_id,
-                        assigned_parking_lot_id=rv.assigned_lot_id,
-                        commit=False,
-                    )
-            conn.commit()  # one batched commit per tick instead of one per write
-
-            overflow_this_tick = {e["parking_lot_id"] for e in overflow_events if e["tick"] == tick}
-            timesteps_metrics.append({
-                "tick": tick,
-                **{f"gate_queue_{g}": gates[g]["queue_length"] for g in gates},
-                **{f"parking_occupancy_{p}": parking_lots[p]["occupied_spaces"] for p in parking_lots},
-                **{f"overflow_{p}": p in overflow_this_tick for p in parking_lots},
-                **{f"road_load_{r}": road_load[r] for r in roads},
-            })
-            road_load = {r: 0 for r in road_load}
-
-        vehicle_metrics = []
-        for rv in running_vehicles:
-            waiting_time = ((rv.gate_admitted_tick - rv.queue_enter_tick) * 60) if rv.gate_admitted_tick and rv.queue_enter_tick else 0
-            search_time = ((rv.search_end_tick - rv.search_start_tick) * 60) if rv.search_end_tick and rv.search_start_tick else 0
-            vehicle_metrics.append({
-                "vehicle_id": rv.vehicle.vehicle_id,
-                "entry_gate": rv.vehicle.entry_gate,
-                "destination_id": rv.vehicle.destination_id,
-                "search_time_seconds": search_time,
-                "waiting_time_seconds": waiting_time,
-                "travel_time_seconds": (rv.completion_tick - rv.vehicle.arrival_tick) * 60 if rv.completion_tick else None,
-                "travel_distance_meters": rv.outbound_distance_meters + rv.inbound_distance_meters,
-                "assigned_lot_id": rv.assigned_lot_id,
-                "final_state": rv.state,
-            })
-
-        completed_at = datetime.now(timezone.utc).isoformat()
-        summary_metrics = {
-            "total_vehicles": len(vehicle_metrics),
-            "completed_vehicles": sum(1 for v in vehicle_metrics if v["final_state"] == "completed"),
-            "parked_vehicles": sum(1 for v in vehicle_metrics if v["final_state"] == "parked"),
-            "failed_vehicles": len(overflow_events),
-            "peak_occupancy_by_lot": {
-                lot_id: max((ts.get(f"parking_occupancy_{lot_id}", 0) for ts in timesteps_metrics), default=0)
-                for lot_id in parking_lots
-            },
-        }
-        conn.execute(
-            "UPDATE simulation_runs SET completed_at=?, status='completed', metrics_json=?, overflow_events_json=? WHERE run_id=?",
-            (completed_at, json.dumps(summary_metrics), json.dumps(overflow_events), run_id),
-        )
-        conn.commit()
-
-        return SimulationResult(
-            run_id=run_id, campus_id=scenario.campus_id, scenario_id=scenario.scenario_id,
-            random_seed=scenario.random_seed, strategy_name=strategy_name,
-            vehicles=vehicle_metrics, timesteps=timesteps_metrics, overflow_events=overflow_events,
-        )
-
-    @staticmethod
-    def _generate_arrivals(scenario: ScenarioConfig, rng: random.Random, open_gate_ids, destination_ids) -> list:
-        """Deterministic given rng: arrival ticks are weighted by the
-        scenario's arrival_rate_profile shape, entry gate and destination
-        are chosen uniformly via the same seeded rng -- never a fresh,
-        unseeded random call anywhere."""
-        ticks = list(range(scenario.duration_minutes))
-        weights = [max(0.0001, _arrival_rate_at(scenario.arrival_rate_profile, t)) for t in ticks]
-
-        vehicles = []
-        if not open_gate_ids or scenario.vehicle_count == 0:
-            return vehicles
-
-        arrival_ticks = sorted(rng.choices(ticks, weights=weights, k=scenario.vehicle_count))
-        for i, tick in enumerate(arrival_ticks):
-            gate_id = rng.choice(sorted(open_gate_ids))
-            destination_id = rng.choice(sorted(destination_ids)) if destination_ids else None
-            vehicles.append(_RunningVehicle(
-                vehicle=Vehicle(
-                    vehicle_id=f"{scenario.scenario_id}-v{i}",
-                    entry_gate=gate_id, destination_id=destination_id, arrival_tick=tick,
-                )
-            ))
-        return vehicles
-
-    @staticmethod
-    def _apply_availability_overrides(graph: nx.Graph, scenario: ScenarioConfig) -> nx.Graph:
-        working = graph.copy()
-        overrides = scenario.availability_overrides or {}
-        for gate_id in overrides.get("closed_gates", []):
-            if gate_id in working:
-                working.remove_node(gate_id)
-        for lot_id in overrides.get("closed_parking_lots", []):
-            if lot_id in working:
-                working.remove_node(lot_id)
-        closed_roads = set(overrides.get("closed_roads", []))
-        if closed_roads:
-            for u, v, d in list(working.edges(data=True)):
-                if d.get("road_id") in closed_roads:
-                    working.remove_edge(u, v)
-        return working
-
-    @staticmethod
-    def _load_gates(campus_id, conn, overrides) -> dict:
-        closed = set((overrides or {}).get("closed_gates", []))
-        gates = {}
-        for row in conn.execute("SELECT * FROM gates WHERE campus_id=?", (campus_id,)):
-            gates[row["gate_id"]] = {
-                "status": "closed" if row["gate_id"] in closed else row["status"],
-                "capacity": row["capacity"],
-                "queue_length": 0,
+        self.gates = {}
+        for r in rows("gates", "gate_id"):
+            per_hour = json.loads(r["metadata"] or "{}").get("peak_throughput_per_hour")
+            self.gates[r["gate_id"]] = {
+                "open": r["status"] == "open" and r["gate_id"] not in closed["closed_gates"],
+                "capacity": r["capacity"],
+                # seconds to admit one vehicle: configured vehicles/hour, else capacity/minute
+                "service_s": 3600 / per_hour if per_hour else 60 / r["capacity"],
+                "queue": 0,
+                "free_at": 0.0,
             }
-        return gates
-
-    @staticmethod
-    def _load_parking_lots(campus_id, conn, overrides) -> dict:
-        closed = set((overrides or {}).get("closed_parking_lots", []))
-        lots = {}
-        for row in conn.execute("SELECT * FROM parking_lots WHERE campus_id=?", (campus_id,)):
-            lots[row["parking_lot_id"]] = {
-                "status": "closed" if row["parking_lot_id"] in closed else row["status"],
-                "usable_capacity": row["usable_capacity"],
+        self.lots = {
+            r["parking_lot_id"]: {
+                "status": "closed" if r["parking_lot_id"] in closed["closed_parking_lots"] else r["status"],
+                "usable_capacity": r["usable_capacity"],
                 "occupied_spaces": 0,
+                "zone": r["zone"],
             }
-        return lots
+            for r in rows("parking_lots", "parking_lot_id")
+        }
+        self.peak = dict.fromkeys(self.lots, 0)
+        self.roads = [r["road_id"] for r in rows("roads", "road_id")]
+        self.destinations = [
+            (r["destination_id"], json.loads(r["nearest_gate_ids"] or "[]"),
+             json.loads(r["nearest_parking_lot_ids"] or "[]"))
+            for r in rows("destinations", "destination_id")
+        ]
 
-    @staticmethod
-    def _load_roads(campus_id, conn) -> dict:
-        return {row["road_id"]: {"status": row["status"], "current_load": 0}
-                for row in conn.execute("SELECT * FROM roads WHERE campus_id=?", (campus_id,))}
+        # Event: demand multiplier and affected zones (1.0 and none without an event).
+        self.multiplier, self.zones = 1.0, []
+        ec = self.sc.event_conditions
+        if ec:
+            event = None if ec.get("ad_hoc") else conn.execute(
+                "SELECT * FROM events WHERE campus_id=? AND event_id=?", (cid, ec.get("event_id"))
+            ).fetchone()
+            self.multiplier = ec.get("demand_multiplier") or event["expected_demand_multiplier"]
+            self.zones = ec.get("affected_zones") or (
+                json.loads(event["affected_zones"] or "[]") if event else [])
 
-    @staticmethod
-    def _load_destination_ids(campus_id, conn) -> list:
-        return [row["destination_id"] for row in conn.execute("SELECT destination_id FROM destinations WHERE campus_id=?", (campus_id,))]
+        # Shortest drives (drivable, open roads only) and walks (walkable edges).
+        graph = self.graph_service.build_graph(cid, conn)
+        drive, walk = nx.Graph(), nx.Graph()
+        drive.add_nodes_from(graph.nodes)  # keep every node, even if its roads are closed
+        for u, v, d in graph.edges(data=True):
+            attrs = {k: d.get(k) for k in ("weight_time_seconds", "weight_distance_meters", "road_id")}
+            if d.get("is_walkable", True):
+                walk.add_edge(u, v, **attrs)
+            if d.get("is_driveable", True) and d.get("status", "open") == "open" \
+                    and d.get("road_id") not in closed["closed_roads"]:
+                drive.add_edge(u, v, **attrs)
+        self.drive_s, self.drive_path = {}, {}
+        for src in [*self.gates, *self.lots]:
+            secs, paths = nx.single_source_dijkstra(drive, src, weight="weight_time_seconds") \
+                if src in drive else ({}, {})
+            reach = [lot for lot in self.lots if lot in secs and lot != src]
+            self.drive_s[src] = {lot: secs[lot] for lot in reach}
+            self.drive_path[src] = {lot: paths[lot] for lot in reach}
+        dest_ids = {d[0] for d in self.destinations}
+        self.walk_m = {
+            lot: {d: m for d, m in nx.single_source_dijkstra_path_length(walk, lot, weight="weight_distance_meters").items()
+                  if d in dest_ids} if lot in walk else {}
+            for lot in self.lots
+        }
+        self.drive = drive
 
-    @staticmethod
-    def _route_target(destination_id, destinations, parking_lots, open_lot_ids):
-        """Vehicles drive to a parking lot node, never to a pedestrian-only
-        destination. This is simulation movement mechanics, not a Navigation
-        feature -- no decision about WHICH lot happens here beyond picking
-        a routable target; the actual assignment decision is the strategy's."""
-        if destination_id in parking_lots and destination_id in open_lot_ids:
-            return destination_id
-        if not open_lot_ids:
-            return None
-        return sorted(open_lot_ids)[0]
+    def _in_event_zone(self, lot_ids) -> bool:
+        return bool(self.zones) and ("all_zones" in self.zones or any(
+            lot in self.zones or self.lots.get(lot, {}).get("zone") in self.zones for lot in lot_ids))
+
+    # ---------------------------------------------------------------- demand
+    def _generate_arrivals(self) -> list:
+        """Vehicles for the run. Arrival minutes follow the arrival profile; inside
+        the event window the rate (and so the vehicle count) is multiplied by the
+        event's multiplier, and destinations near the event's zone are picked that
+        many times more often."""
+        sc, rng = self.sc, self.rng_demand
+        open_gates = [g for g, d in self.gates.items() if d["open"]]
+        minutes = np.arange(sc.duration_minutes, dtype=float)
+        base = _rate_at(sc.arrival_rate_profile, minutes + 0.5)
+        weights = base.copy()
+        ec = sc.event_conditions
+        if ec:
+            start, end = ec.get("start_minute", 0), ec.get("end_minute", sc.duration_minutes)
+            weights[(minutes >= start) & (minutes < end)] *= self.multiplier
+        if base.sum() <= 0 or not open_gates or not self.destinations:
+            return []
+        count = round(sc.vehicle_count * weights.sum() / base.sum())
+
+        arrivals = np.sort((rng.choice(minutes, count, p=weights / weights.sum())
+                            + rng.random(count)) * 60)
+        dest_w = np.array([self.multiplier if self._in_event_zone(lots) else 1.0
+                           for _, _, lots in self.destinations])
+        picks = rng.choice(len(self.destinations), count, p=dest_w / dest_w.sum())
+        cars = []
+        for i, (t, di) in enumerate(zip(arrivals, picks)):
+            dest_id, dest_gates, _ = self.destinations[di]
+            gates = [g for g in open_gates if g in dest_gates] or open_gates
+            gate = gates[rng.integers(len(gates))]
+            cars.append(_Car(Vehicle(f"{sc.scenario_id}-v{i}", gate, dest_id, int(t // 60)), t))
+        return cars
+
+    # ---------------------------------------------------------------- events
+    def _push(self, t, kind, car):
+        heapq.heappush(self.queue, (t, self.seq, kind, car))
+        self.seq += 1  # tie-breaker: same-time events keep their order
+
+    def _on_arrive(self, car, now):
+        gate = self.gates[car.vehicle.entry_gate]
+        gate["queue"] += 1
+        gate["free_at"] = max(now, gate["free_at"]) + gate["service_s"]  # FIFO
+        self._push(gate["free_at"], "admit", car)
+
+    def _on_admit(self, car, now):
+        self.gates[car.vehicle.entry_gate]["queue"] -= 1
+        car.admit_s = now
+        car.vehicle.current_node = car.vehicle.entry_gate
+        if not self.drive_s.get(car.vehicle.entry_gate):
+            car.outcome = LEFT_NO_ROUTE
+        else:
+            self._go_to_next_lot(car, now, LEFT_NO_SPACE)
+
+    def _on_reach_lot(self, car, now):
+        lot_id = car.target
+        lot = self.lots[lot_id]
+        car.vehicle.current_node = lot_id
+        car.tried.add(lot_id)
+        if lot["status"] == "open" and lot["occupied_spaces"] < lot["usable_capacity"]:
+            lot["occupied_spaces"] += 1
+            self.peak[lot_id] = max(self.peak[lot_id], lot["occupied_spaces"])
+            car.parked_lot, car.parked_s = lot_id, now
+            car.dwell_s = 60 * self.rng_dwell.uniform(self.sc.dwell_minutes["min"],
+                                                      self.sc.dwell_minutes["max"])
+            self._push(now + car.dwell_s, "leave", car)
+            return
+        self._log_overflow(lot_id, now)  # it was full
+        if len(car.tried) >= self.sc.max_lots_tried:
+            car.outcome = LEFT_ALL_FULL
+        else:
+            self._go_to_next_lot(car, now, LEFT_ALL_FULL)
+
+    def _on_leave(self, car, now):
+        self.lots[car.parked_lot]["occupied_spaces"] -= 1
+        car.outcome = PARKED
+
+    def _go_to_next_lot(self, car, now, outcome_if_none):
+        """Ask the strategy for a lot (timed), then drive there. A missing, repeated
+        or unreachable answer is a failed attempt and the vehicle leaves."""
+        view = self._strategy_view(car)
+        start = time.perf_counter_ns()  # time only the strategy's decision
+        answer = self.strategy.assign(car.vehicle, view)
+        self.latency_ms.append((time.perf_counter_ns() - start) / 1e6)
+        lot = answer.parking_lot_id if answer else None
+        here = car.vehicle.current_node
+        if lot is None or lot in car.tried or lot not in self.drive_s[here]:
+            self._log_overflow(lot, now)
+            car.outcome = outcome_if_none
+            return
+        path = self.drive_path[here][lot]
+        for a, b in zip(path, path[1:]):
+            edge = self.drive.edges[a, b]
+            car.drive_m += edge["weight_distance_meters"]
+            if edge["road_id"] in self.minute_road_load:
+                self.minute_road_load[edge["road_id"]] += 1
+        car.target = lot
+        self._push(now + self.drive_s[here][lot], "reach_lot", car)
+
+    def _strategy_view(self, car) -> CampusState:
+        """What the strategy sees. With forecast error e > 0, each lot's occupancy
+        is shown as occupancy * (1 + Normal(0, e)), kept within [0, capacity].
+        The engine itself always uses the true occupancy."""
+        error = self.sc.prediction_error_injection_level
+        lots = {}
+        for lot_id, lot in self.lots.items():
+            seen = lot["occupied_spaces"]
+            if error > 0:
+                noisy = seen * (1 + self.rng_noise.normal(0, error))
+                seen = int(np.clip(round(noisy), 0, lot["usable_capacity"]))
+            lots[lot_id] = {**lot, "occupied_spaces": seen}
+        gates = {g: {"status": "open" if d["open"] else "closed", "capacity": d["capacity"],
+                     "queue_length": d["queue"]} for g, d in self.gates.items()}
+        return CampusState(self.sc.campus_id, self.drive, lots, gates, {}, set(car.tried))
+
+    def _log_overflow(self, lot_id, now):
+        self.overflow.append({"tick": int(now // 60), "parking_lot_id": lot_id})
+        if lot_id in self.lots:
+            self.minute_overflow.add(lot_id)
+
+    # ------------------------------------------------------------- recording
+    def _record_minute(self, minute):
+        for lot in self.lots.values():
+            self.violations += not 0 <= lot["occupied_spaces"] <= lot["usable_capacity"]
+        self.timesteps.append({
+            "tick": minute,
+            **{f"gate_queue_{g}": d["queue"] for g, d in self.gates.items()},
+            **{f"parking_occupancy_{p}": d["occupied_spaces"] for p, d in self.lots.items()},
+            **{f"overflow_{p}": p in self.minute_overflow for p in self.lots},
+            **{f"road_load_{r}": n for r, n in self.minute_road_load.items()},
+        })
+        self.minute_overflow, self.minute_road_load = set(), dict.fromkeys(self.roads, 0)
+
+    def _row(self, car) -> dict:
+        v = car.vehicle
+        walk = self.walk_m.get(car.parked_lot, {}).get(v.destination_id)
+        return {
+            "vehicle_id": v.vehicle_id,
+            "entry_gate": v.entry_gate,
+            "destination_id": v.destination_id,
+            "arrival_minute": round(car.arrival_s / 60, 3),
+            "waiting_time_seconds": round(car.admit_s - car.arrival_s, 2) if car.admit_s else 0,
+            "assigned_lot_id": car.parked_lot,
+            "lots_tried": len(car.tried),
+            "search_time_seconds": round(car.parked_s - car.admit_s, 2) if car.parked_s else 0,
+            "travel_distance_meters": round(car.drive_m, 1),
+            "walk_distance_meters": None if walk is None else round(walk, 1),
+            "dwell_minutes": round(car.dwell_s / 60, 2),
+            "outcome": car.outcome,
+            "final_state": "completed",
+        }
+
+    def _summary(self, rows) -> dict:
+        n = len(rows)
+        parked = [r for r in rows if r["outcome"] == PARKED]
+
+        def mean(values, digits=2):
+            values = [x for x in values if x is not None]
+            return round(float(np.mean(values)), digits) if values else None
+
+        return {
+            "total_vehicles": n,
+            "completed_vehicles": n,
+            "parked_vehicles": len(parked),
+            "failed_vehicles": n - len(parked),
+            "turned_away_pct": round(100 * (n - len(parked)) / n, 2) if n else 0.0,
+            "mean_gate_wait_s": mean(r["waiting_time_seconds"] for r in rows),
+            "mean_search_time_s": mean(r["search_time_seconds"] for r in parked),
+            "mean_lots_tried": mean(r["lots_tried"] for r in parked),
+            "mean_walk_m": mean(r["walk_distance_meters"] for r in parked),
+            "peak_occupancy_pct": round(max(
+                (100 * self.peak[p] / d["usable_capacity"]
+                 for p, d in self.lots.items() if d["usable_capacity"]), default=0), 2),
+            "peak_occupancy_by_lot": dict(self.peak),
+            "capacity_violations": self.violations,
+            "decision_latency_mean_ms": mean(self.latency_ms, 4),
+        }
+
+    def _persist(self, result, cars, conn):
+        """Write the final campus state and the run's metrics to the DB."""
+        now = datetime.now(timezone.utc).isoformat()
+        cid, twin = result.campus_id, self.twin_service
+        conn.execute(
+            "INSERT INTO simulation_runs (run_id, campus_id, scenario_id, random_seed, strategy_name,"
+            " configuration_version, started_at, completed_at, status, metrics_json,"
+            " overflow_events_json) VALUES (?, ?, ?, ?, ?, (SELECT active_configuration_version"
+            " FROM campuses WHERE campus_id=?), ?, ?, 'completed', ?, ?)",
+            (result.run_id, cid, result.scenario_id, result.random_seed, result.strategy_name,
+             cid, now, now, json.dumps(result.summary), json.dumps(result.overflow_events)),
+        )
+        args = ("simulation", "SYNTHETIC", now, conn)
+        for lot_id, lot in self.lots.items():
+            twin.update_parking_state(cid, lot_id, lot["occupied_spaces"], *args, commit=False)
+        for gate_id, gate in self.gates.items():
+            twin.update_gate_state(cid, gate_id, gate["queue"], 0, *args, commit=False)
+        for road_id in self.roads:
+            twin.update_road_state(cid, road_id, 0, "free", *args, commit=False)
+        for car in cars:
+            twin.update_vehicle_state(
+                cid, car.vehicle.vehicle_id, "completed", "simulation", now, conn,
+                destination_id=car.vehicle.destination_id,
+                assigned_parking_lot_id=car.parked_lot, commit=False,
+            )
+        conn.commit()

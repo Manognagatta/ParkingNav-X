@@ -22,10 +22,13 @@ class ScenarioConfig:
     duration_minutes: int
     vehicle_count: int
     arrival_rate_profile: dict          # {"type": "constant", "rate": n} or {"type": "profile", "points": [{time, rate}, ...]}
-    event_conditions: Optional[dict]    # {"event_id": ...} or {"ad_hoc": true, "demand_multiplier": n}
+    event_conditions: Optional[dict]    # {"event_id": ...} or {"ad_hoc": true, "demand_multiplier": n}; optional start_minute/end_minute
     availability_overrides: dict        # {"closed_gates": [], "closed_parking_lots": [], "closed_roads": []}
-    prediction_error_injection_level: float
+    prediction_error_injection_level: float  # forecast error: 0.1 = strategy sees occupancy with ~10% noise
     random_seed: int
+    description: str = ""
+    dwell_minutes: dict = field(default_factory=lambda: {"min": 20, "max": 180})  # parked time range
+    max_lots_tried: int = 3  # lots a driver tries before leaving campus
 
 
 class ScenarioLoader:
@@ -56,6 +59,9 @@ class ScenarioLoader:
             ),
             prediction_error_injection_level=raw.get("prediction_error_injection_level", 0.0),
             random_seed=raw["random_seed"],
+            description=raw.get("description", ""),
+            dwell_minutes=raw.get("dwell_minutes", {"min": 20, "max": 180}),
+            max_lots_tried=raw.get("max_lots_tried", 3),
         )
 
 

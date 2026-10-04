@@ -22,6 +22,7 @@ class Vehicle:
     entry_gate: str
     destination_id: Optional[str]
     arrival_tick: int
+    current_node: Optional[str] = None  # where the vehicle is when deciding (gate, or a full lot)
 
 
 @dataclass
@@ -34,6 +35,7 @@ class CampusState:
     parking_lots: dict   # lot_id -> {"status", "usable_capacity", "occupied_spaces"}
     gates: dict           # gate_id -> {"status", "capacity", "queue_length"}
     roads: dict           # road_id -> {"status", "current_load"}
+    excluded_lots: set = field(default_factory=set)  # lots this vehicle already found full
 
 
 @dataclass

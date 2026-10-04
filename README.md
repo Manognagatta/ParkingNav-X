@@ -18,7 +18,7 @@ ParkingNav-X/
 ├── scripts/          Command-line helpers (load a campus, import data, generate data)
 ├── tests/            Automated tests for digital_twin/ (+ fixtures/)
 ├── docs/             Reports, roadmap, and data documentation
-├── experiments/runs/ Simulation output (created when you run a simulation; not committed)
+├── experiments/      results/ = results tables (committed); runs/ = per-run CSVs (not committed)
 └── legacy/           The original prototype optimizer, kept for reference only
 ```
 
@@ -50,11 +50,21 @@ Import the 30-day history CSVs from `data/` into the same database:
 python scripts/import_history_data.py
 ```
 
-Run a simulation (output goes to `experiments/runs/<run-id>/`):
+Run a scenario with both baselines (First-Available, Nearest-Available) over 30 seeds:
 
 ```bash
-python -m digital_twin.cli.run --campus vitap --scenario configs/scenarios/vitap/normal_day.yaml --strategy digital_twin.simulation.demo_strategies.DemoNearestAvailableStrategy
+python -m digital_twin.cli.run --scenario configs/scenarios/vitap/peak_hour.yaml
 ```
+
+Run every VIT-AP scenario, or test forecast error (0%, 10%, 20%):
+
+```bash
+python -m digital_twin.cli.run --all
+python -m digital_twin.cli.run --scenario configs/scenarios/vitap/peak_hour.yaml --forecast-error 0 0.1 0.2
+```
+
+Results tables (mean ± 95% CI) go to `experiments/results/*.md`; per-vehicle and
+per-minute CSVs for every run go to `experiments/runs/`.
 
 Check a scenario file is valid before running it:
 

@@ -7,6 +7,7 @@ the same file produces zero new rows. Validation never silently repairs a
 problem; it raises ConfigError with a clear reason.
 """
 
+import csv
 import json
 import sqlite3
 from datetime import datetime, timezone
@@ -16,13 +17,42 @@ import yaml
 
 from digital_twin.models import ConfigError
 
+DATA_DIR = Path(__file__).resolve().parent.parent / "data"
+
 LAT_RANGE = (-90.0, 90.0)
 LNG_RANGE = (-180.0, 180.0)
 
 
 def load_campus_yaml(path) -> dict:
+    """Read a campus YAML. If it has no `events:` section, events are taken
+    from data/<campus_id>_events.csv when that file exists (VIT-AP keeps its
+    events there), so they are never copied into two places."""
     with open(path, "r", encoding="utf-8") as f:
-        return yaml.safe_load(f)
+        raw = yaml.safe_load(f)
+    if not raw.get("events"):
+        events_csv = DATA_DIR / f"{raw.get('campus', {}).get('campus_id')}_events.csv"
+        if events_csv.exists():
+            raw["events"] = load_events_csv(events_csv)
+    return raw
+
+
+def load_events_csv(path) -> list:
+    """Events from a CSV with the data/vitap_events.csv columns.
+    `affected_zones` may list several zones separated by '|'."""
+    with open(path, "r", encoding="utf-8", newline="") as f:
+        return [
+            {
+                "event_id": row["event_id"],
+                "event_type": row["event_type"],
+                "name": row["name"],
+                "start_time": row.get("start_time"),
+                "end_time": row.get("end_time"),
+                "expected_demand_multiplier": float(row["expected_demand_multiplier"]),
+                "affected_zones": [z for z in (row.get("affected_zones") or "").split("|") if z],
+                "status": row.get("status") or "scheduled",
+            }
+            for row in csv.DictReader(f)
+        ]
 
 
 def validate_campus_config(raw: dict) -> list:
