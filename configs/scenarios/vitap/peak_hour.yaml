@@ -1,23 +1,29 @@
-# SYNTHETIC scenario: the 08:00-10:00 morning rush, when classes start.
-# Arrivals peak around 08:30-09:00. Tests gate queues and lots filling up.
+# Peak hour scenario: 8:00–10:00 AM morning rush, high uniform arrival rate
 scenario_id: vitap-peak-hour
 campus_id: vitap
 name: PEAK_HOUR
-description: Morning rush, 400 vehicles in 2 hours, peaking at 08:30-09:00.
+description: "Morning peak 8:00-10:00 AM; sustained high arrival rate across all zones"
 duration_minutes: 120
-vehicle_count: 400
+vehicle_count: 350
+start_time_min: 480
 arrival_rate_profile:
   type: profile
   points:
-    - { time: 0, rate: 0.3 }
-    - { time: 30, rate: 1.0 }
-    - { time: 60, rate: 1.0 }
-    - { time: 120, rate: 0.2 }
+    - { time: 0, rate: 2.0 }
+    - { time: 60, rate: 1.8 }
+    - { time: 90, rate: 1.2 }
+    - { time: 120, rate: 0.6 }
+
 event_conditions: null
 availability_overrides:
   closed_gates: []
   closed_parking_lots: []
   closed_roads: []
+
 prediction_error_injection_level: 0.0
-dwell_minutes: { min: 120, max: 420 }
-random_seed: 100
+random_seed: 11
+warmdown_minutes: 30
+use_prediction: true
+use_optimization: true
+use_uncertainty: true
+proactive: true

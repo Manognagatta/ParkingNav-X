@@ -22,13 +22,18 @@ class ScenarioConfig:
     duration_minutes: int
     vehicle_count: int
     arrival_rate_profile: dict          # {"type": "constant", "rate": n} or {"type": "profile", "points": [{time, rate}, ...]}
-    event_conditions: Optional[dict]    # {"event_id": ...} or {"ad_hoc": true, "demand_multiplier": n}; optional start_minute/end_minute
+    event_conditions: Optional[dict]    # {"event_id": ...} or {"ad_hoc": true, "demand_multiplier": n}
     availability_overrides: dict        # {"closed_gates": [], "closed_parking_lots": [], "closed_roads": []}
-    prediction_error_injection_level: float  # forecast error: 0.1 = strategy sees occupancy with ~10% noise
+    prediction_error_injection_level: float
     random_seed: int
-    description: str = ""
-    dwell_minutes: dict = field(default_factory=lambda: {"min": 20, "max": 180})  # parked time range
-    max_lots_tried: int = 3  # lots a driver tries before leaving campus
+    start_time_min: int = 480           # Wall-clock start (minutes since midnight); 480 = 08:00
+    # Ablation flags (Phase 7, E6): control which components are active
+    use_prediction: bool = True         # Enable Member 2's occupancy forecasts
+    use_optimization: bool = True       # Enable Member 3's optimizer (vs. baseline)
+    use_uncertainty: bool = True        # Include uncertainty intervals in decisions
+    proactive: bool = True              # Use proactive routing (vs. reactive)
+    # Warm-down: no new arrivals in the last N minutes so vehicles can exit before recording ends
+    warmdown_minutes: int = 0
 
 
 class ScenarioLoader:
@@ -59,9 +64,12 @@ class ScenarioLoader:
             ),
             prediction_error_injection_level=raw.get("prediction_error_injection_level", 0.0),
             random_seed=raw["random_seed"],
-            description=raw.get("description", ""),
-            dwell_minutes=raw.get("dwell_minutes", {"min": 20, "max": 180}),
-            max_lots_tried=raw.get("max_lots_tried", 3),
+            start_time_min=raw.get("start_time_min", 480),
+            use_prediction=raw.get("use_prediction", True),
+            use_optimization=raw.get("use_optimization", True),
+            use_uncertainty=raw.get("use_uncertainty", True),
+            proactive=raw.get("proactive", True),
+            warmdown_minutes=raw.get("warmdown_minutes", 0),
         )
 
 
@@ -100,6 +108,19 @@ class ScenarioValidator:
         for road_id in overrides.get("closed_roads", []):
             if not _exists("roads", "road_id", road_id):
                 errors.append(f"availability_overrides.closed_roads references unknown road '{road_id}' for campus '{scenario.campus_id}'.")
+
+        for tc in overrides.get("timed_closures", []):
+            etype = tc.get("entity_type")
+            eid = tc.get("entity_id")
+            if etype == "parking_lot":
+                if not _exists("parking_lots", "parking_lot_id", eid):
+                    errors.append(f"availability_overrides.timed_closures references unknown parking lot '{eid}' for campus '{scenario.campus_id}'.")
+            elif etype == "gate":
+                if not _exists("gates", "gate_id", eid):
+                    errors.append(f"availability_overrides.timed_closures references unknown gate '{eid}' for campus '{scenario.campus_id}'.")
+            elif etype == "road":
+                if not _exists("roads", "road_id", eid):
+                    errors.append(f"availability_overrides.timed_closures references unknown road '{eid}' for campus '{scenario.campus_id}'.")
 
         if scenario.event_conditions:
             ec = scenario.event_conditions

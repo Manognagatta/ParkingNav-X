@@ -7,7 +7,6 @@ the same file produces zero new rows. Validation never silently repairs a
 problem; it raises ConfigError with a clear reason.
 """
 
-import csv
 import json
 import sqlite3
 from datetime import datetime, timezone
@@ -17,46 +16,157 @@ import yaml
 
 from digital_twin.models import ConfigError
 
-DATA_DIR = Path(__file__).resolve().parent.parent / "data"
+# Alias used by tests and external callers
+CampusConfigError = ConfigError
 
 LAT_RANGE = (-90.0, 90.0)
 LNG_RANGE = (-180.0, 180.0)
 
 
 def load_campus_yaml(path) -> dict:
-    """Read a campus YAML. If it has no `events:` section, events are taken
-    from data/<campus_id>_events.csv when that file exists (VIT-AP keeps its
-    events there), so they are never copied into two places."""
     with open(path, "r", encoding="utf-8") as f:
-        raw = yaml.safe_load(f)
-    if not raw.get("events"):
-        events_csv = DATA_DIR / f"{raw.get('campus', {}).get('campus_id')}_events.csv"
-        if events_csv.exists():
-            raw["events"] = load_events_csv(events_csv)
-    return raw
+        return yaml.safe_load(f)
 
 
-def load_events_csv(path) -> list:
-    """Events from a CSV with the data/vitap_events.csv columns.
-    `affected_zones` may list several zones separated by '|'."""
-    with open(path, "r", encoding="utf-8", newline="") as f:
-        return [
-            {
-                "event_id": row["event_id"],
-                "event_type": row["event_type"],
-                "name": row["name"],
-                "start_time": row.get("start_time"),
-                "end_time": row.get("end_time"),
-                "expected_demand_multiplier": float(row["expected_demand_multiplier"]),
-                "affected_zones": [z for z in (row.get("affected_zones") or "").split("|") if z],
-                "status": row.get("status") or "scheduled",
-            }
-            for row in csv.DictReader(f)
-        ]
+def _is_simulation_schema(raw: dict) -> bool:
+    """Detect if the YAML uses the simulation schema (id/lots/roads with length_m)
+    vs the DB schema (campus_id/parking_lots/roads with length_meters)."""
+    campus = raw.get("campus", {})
+    return "id" in campus and "campus_id" not in campus or "lots" in raw
 
 
 def validate_campus_config(raw: dict) -> list:
-    """Returns a list of error strings. Empty list = valid."""
+    """Returns a list of error strings. Empty list = valid.
+
+    Accepts both schemas:
+    - DB schema: campus.campus_id, parking_lots, roads with length_meters/start_node_id/end_node_id
+    - Simulation schema: campus.id, lots, roads with length_m/from/to, zones, event_types
+    """
+    if _is_simulation_schema(raw):
+        return _validate_simulation_schema(raw)
+    return _validate_db_schema(raw)
+
+
+def _validate_simulation_schema(raw: dict) -> list:
+    """Validate the simulation-oriented YAML schema from the master prompt."""
+    errors = []
+    campus = raw.get("campus", {})
+    campus_id = campus.get("id") or campus.get("campus_id")
+    if not campus_id:
+        errors.append("Missing campus.id")
+        return errors
+
+    gates = raw.get("gates", []) or []
+    lots = raw.get("lots", []) or []
+    roads = raw.get("roads", []) or []
+    zones = raw.get("zones", []) or []
+    event_types = raw.get("event_types", []) or []
+
+    if not gates:
+        errors.append("at least one gate must be defined; gates list is empty")
+    if not lots:
+        errors.append("at least one lot must be defined; lots list is empty")
+
+    def _check_duplicates(items, id_field, label):
+        seen = set()
+        for item in items:
+            item_id = item.get(id_field)
+            if item_id in seen:
+                errors.append(f"Duplicate {label} id: {item_id}")
+            seen.add(item_id)
+
+    _check_duplicates(gates, "id", "gate")
+    _check_duplicates(lots, "id", "lot")
+    _check_duplicates(roads, "id", "road")
+    _check_duplicates(zones, "id", "zone")
+    _check_duplicates(event_types, "id", "event_type")
+
+    node_ids = set()
+    for g in gates:
+        gate_id = g.get("id")
+        node_id = g.get("node", gate_id)
+        node_ids.add(node_id)
+        cap = g.get("capacity", g.get("lanes", 0))
+        if cap is not None and cap <= 0:
+            errors.append(f"Gate '{gate_id}' capacity must be > 0 (positive)")
+        status = g.get("status", "open")
+        if status not in ("open", "closed"):
+            errors.append(f"Gate '{gate_id}' has invalid status '{status}'; must be 'open' or 'closed'")
+
+    zone_ids = {z.get("id") for z in zones}
+    lot_ids = set()
+    for p in lots:
+        lot_id = p.get("id")
+        node_id = p.get("node", lot_id)
+        node_ids.add(node_id)
+        lot_ids.add(lot_id)
+        capacity = p.get("capacity", 0)
+        if capacity <= 0:
+            errors.append(f"Lot '{lot_id}' capacity must be > 0 (positive)")
+        reserved = p.get("reserved", {}) or {}
+        total_reserved = sum(v for v in reserved.values() if isinstance(v, (int, float)))
+        if total_reserved > capacity:
+            errors.append(f"Lot '{lot_id}': sum of reserved spaces exceeds total capacity")
+        lot_zone = p.get("zone")
+        if lot_zone and zone_ids and lot_zone not in zone_ids:
+            errors.append(f"Lot '{lot_id}': zone '{lot_zone}' not found in zones list; undefined zone")
+
+    gate_node_ids = {g.get("node", g.get("id")) for g in gates}
+    lot_node_ids = {p.get("node", p.get("id")) for p in lots}
+    # Build adjacency to check reachability
+    adj: dict = {nid: set() for nid in node_ids}
+    for r in roads:
+        road_id = r.get("id")
+        from_id = r.get("from")
+        to_id = r.get("to")
+        length = r.get("length_m", r.get("length_meters", 0))
+        speed = r.get("free_speed_kmph", 1)
+        if length <= 0:
+            errors.append(f"Road '{road_id}' length must be > 0 (positive length_m)")
+        if speed <= 0:
+            errors.append(f"Road '{road_id}' free_speed_kmph must be > 0 (positive speed)")
+        if from_id not in node_ids:
+            errors.append(f"Road '{road_id}' references missing node '{from_id}'")
+        if to_id not in node_ids:
+            errors.append(f"Road '{road_id}' references missing node '{to_id}'")
+        if from_id in adj:
+            adj[from_id].add(to_id)
+        if r.get("bidirectional") and to_id in adj:
+            adj[to_id].add(from_id)
+
+    # Check reachability: each lot must be reachable from at least one gate
+    for lot_node in lot_node_ids:
+        reachable = False
+        for gate_node in gate_node_ids:
+            visited: set = set()
+            stack = [gate_node]
+            while stack:
+                cur = stack.pop()
+                if cur == lot_node:
+                    reachable = True
+                    break
+                if cur in visited:
+                    continue
+                visited.add(cur)
+                stack.extend(adj.get(cur, []))
+            if reachable:
+                break
+        if not reachable and gates and lots:
+            errors.append(
+                f"Lot node '{lot_node}' is unreachable (not reachable / disconnected) from any gate"
+            )
+
+    for et in event_types:
+        et_id = et.get("id")
+        multiplier = et.get("demand_multiplier", 1)
+        if multiplier <= 0:
+            errors.append(f"Event type '{et_id}' multiplier must be > 0 (positive)")
+
+    return errors
+
+
+def _validate_db_schema(raw: dict) -> list:
+    """Validate the DB-oriented YAML schema."""
     errors = []
     campus = raw.get("campus", {})
     campus_id = campus.get("campus_id")
@@ -84,7 +194,7 @@ def validate_campus_config(raw: dict) -> list:
     _check_duplicates(destinations, "destination_id", "destination")
     _check_duplicates(events, "event_id", "event")
 
-    node_coords = {}  # node_id -> (lat, lng)
+    node_coords = {}
     node_ids = set()
 
     def _check_coords(lat, lng, label):
