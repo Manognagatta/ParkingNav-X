@@ -16,13 +16,13 @@ class CampusGraphService:
     def __init__(self):
         self._cache = {}
 
-    def build_graph(self, campus_id: str, conn) -> nx.Graph:
+    def build_graph(self, campus_id: str, conn) -> nx.DiGraph:
         if campus_id in self._cache:
             return self._cache[campus_id]
         return self.refresh_graph(campus_id, conn)
 
-    def refresh_graph(self, campus_id: str, conn) -> nx.Graph:
-        graph = nx.Graph()
+    def refresh_graph(self, campus_id: str, conn) -> nx.DiGraph:
+        graph = nx.DiGraph()  # directed: road from→to is one-way unless both directions in DB
 
         for row in conn.execute("SELECT * FROM gates WHERE campus_id=?", (campus_id,)):
             graph.add_node(row["gate_id"], type="gate", latitude=row["latitude"],
@@ -50,13 +50,13 @@ class CampusGraphService:
         self._cache[campus_id] = graph
         return graph
 
-    def get_neighbors(self, graph: nx.Graph, node_id: str) -> list:
-        return list(graph.neighbors(node_id))
+    def get_neighbors(self, graph: nx.DiGraph, node_id: str) -> list:
+        return list(graph.successors(node_id))
 
-    def get_node(self, graph: nx.Graph, node_id: str) -> dict:
+    def get_node(self, graph: nx.DiGraph, node_id: str) -> dict:
         return dict(graph.nodes[node_id])
 
-    def get_edge(self, graph: nx.Graph, from_id: str, to_id: str) -> dict:
+    def get_edge(self, graph: nx.DiGraph, from_id: str, to_id: str) -> dict:
         return dict(graph.edges[from_id, to_id])
 
     def is_connected(self, graph: nx.Graph, node_a: str, node_b: str) -> bool:
