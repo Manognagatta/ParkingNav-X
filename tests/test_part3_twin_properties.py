@@ -17,8 +17,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
-from hypothesis import given, settings
+from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
+from hypothesis.database import InMemoryExampleDatabase
 
 from digital_twin.config_loader import load_campus_config
 from digital_twin.db import apply_migrations, get_connection
@@ -64,8 +65,12 @@ def test_1000_random_parking_transitions_never_violate_invariants(conn, twin):
     """Property: 1,000 random valid parking updates never cause invariants to break."""
 
     @given(updates=st.lists(parking_updates(), min_size=1, max_size=1000))
-    @settings(max_examples=100)  # 100 test cases × up to 1000 transitions each = 100k+ transitions
+    @settings(max_examples=100, database=InMemoryExampleDatabase(),
+              suppress_health_check=[HealthCheck.function_scoped_fixture, HealthCheck.too_slow])  # noqa: E501
     def prop_parking_invariants(updates):
+        # Reset per-example to avoid cross-example state leakage
+        conn.execute("DELETE FROM parking_lot_state WHERE campus_id='sample'")
+        conn.commit()
         now = datetime.now(timezone.utc)
         for lot_id, occupied in updates:
             try:
@@ -86,8 +91,12 @@ def test_1000_random_gate_transitions_never_violate_invariants(conn, twin):
     """Property: 1,000 random valid gate updates never cause invariants to break."""
 
     @given(updates=st.lists(gate_updates(), min_size=1, max_size=1000))
-    @settings(max_examples=100)
+    @settings(max_examples=100, database=InMemoryExampleDatabase(),
+              suppress_health_check=[HealthCheck.function_scoped_fixture, HealthCheck.too_slow])  # noqa: E501
     def prop_gate_invariants(updates):
+        # Reset per-example to avoid cross-example state leakage
+        conn.execute("DELETE FROM gate_state WHERE campus_id='sample'")
+        conn.commit()
         now = datetime.now(timezone.utc)
         for gate_id, queue, throughput in updates:
             try:
