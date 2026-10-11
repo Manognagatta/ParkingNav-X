@@ -21,8 +21,11 @@ from digital_twin.simulation.strategy import AssignmentResult, NearestAvailableS
 ROOT = Path(__file__).resolve().parent.parent
 
 MEMBER2_DATASET_COLUMNS = [
-    "scenario_id", "seed", "arrival_time", "assigned_lot_id", "search_time_min",
-    "wait_time_min", "final_state", "complied", "travel_distance_m",
+    "timestamp", "scenario_id", "seed", "day_type", "event_type", "event_intensity",
+    "minutes_to_event_start", "hour", "minute", "weekday", "lot_id", "capacity",
+    "occupied", "occupancy_pct", "arrivals_5m", "departures_5m", "gate_id",
+    "gate_arrivals_5m", "queue_length", "avg_wait_sec", "avg_travel_time_sec",
+    "road_congestion_ratio_mean", "congestion_level", "lot_status", "gate_status", "source",
 ]
 MEMBER2_LOTS_COLUMNS = [
     "scenario_id", "seed", "timestamp", "sim_time_min", "lot_id", "capacity", "occupied_spaces",
