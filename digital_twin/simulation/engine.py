@@ -926,11 +926,17 @@ class SimulationEngine:
         Uses shortest path distance from current node."""
         if not open_lot_ids:
             return None
-        candidates = [
-            (lot_id, nx.shortest_path_length(graph, from_node, lot_id, weight="weight_distance_meters"))
-            for lot_id in open_lot_ids
-            if lot_id in graph and parking_lots[lot_id]["occupied_spaces"] < parking_lots[lot_id]["usable_capacity"]
-        ]
+        candidates = []
+        for lot_id in open_lot_ids:
+            if lot_id not in graph:
+                continue
+            if parking_lots[lot_id]["occupied_spaces"] >= parking_lots[lot_id]["usable_capacity"]:
+                continue
+            try:
+                dist = nx.shortest_path_length(graph, from_node, lot_id, weight="weight_distance_meters")
+                candidates.append((lot_id, dist))
+            except (nx.NetworkXNoPath, nx.NodeNotFound):
+                pass
         if not candidates:
             return None
         return min(candidates, key=lambda x: x[1])[0]
