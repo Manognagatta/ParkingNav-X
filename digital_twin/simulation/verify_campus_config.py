@@ -35,19 +35,19 @@ def check(label: str, passed: bool, detail: str = "") -> None:
         sys.exit(1)
 
 
-# ── Test 1: load vitap_v1 ─────────────────────────────────────────────────────
-print("\n=== Test 1: load vitap_v1 ===")
+# ── Test 1: load vitap (main campus) ─────────────────────────────────────────
+print("\n=== Test 1: load vitap ===")
 try:
-    campus = load_campus("vitap_v1", str(ROOT / "configs" / "campus"))
+    campus = load_campus("vitap", str(ROOT / "configs" / "campus"))
     detail = (
         f"id={campus.id} | gates={len(campus.gates)} | lots={len(campus.parking_lots)} "
         f"| roads={len(campus.roads)} | nodes={len(campus.nodes)}"
     )
-    check("vitap_v1 loads and validates", True, detail)
+    check("vitap loads and validates", True, detail)
     print(f"       Campus valid — '{campus.id}' | {len(campus.gates)} gates | "
           f"{len(campus.parking_lots)} lots | {len(campus.roads)} roads | {len(campus.nodes)} nodes")
 except Exception as exc:
-    check("vitap_v1 loads and validates", False, str(exc))
+    check("vitap loads and validates", False, str(exc))
 
 
 # ── Test 2: load toy_small (v1 spec schema file) ──────────────────────────────
@@ -192,8 +192,8 @@ except Exception as exc:
 # ── Test 6: graph PNG saved ───────────────────────────────────────────────────
 print("\n=== Test 6: graph PNG saved ===")
 try:
-    campus = load_campus("vitap_v1", str(ROOT / "configs" / "campus"))
-    png_path = plot_campus(campus, str(ROOT / "docs" / "campus_graph_vitap_v1.png"))
+    campus = load_campus("vitap", str(ROOT / "configs" / "campus"))
+    png_path = plot_campus(campus, str(ROOT / "docs" / "campus_graph_vitap.png"))
     exists = Path(png_path).exists()
     check("campus graph PNG saved", exists, f"Saved to: {png_path}")
 except Exception as exc:
