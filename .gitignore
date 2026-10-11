@@ -34,6 +34,7 @@ venv/
 .claude/
 data/observations/*.csv
 !data/observations/template.csv
+!data/observations/vitap_observations.csv
 data/member2_synthetic/
 
 runs/
