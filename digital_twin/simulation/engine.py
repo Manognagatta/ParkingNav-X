@@ -276,6 +276,7 @@ class SimulationEngine:
         tpm = 60 // dt            # engine ticks per minute
         step_min = dt / 60.0      # minutes advanced per engine tick
         gate_credit = {g: 0.0 for g in gates}   # fractional vehicles a gate may still serve (rate x dt)
+        gate_throughput = {g: 0 for g in gates}  # vehicles served this minute (reset each minute boundary)
 
         def _to_ticks(minutes):
             return None if minutes is None else minutes * tpm
@@ -363,6 +364,7 @@ class SimulationEngine:
                     rv = by_id[vehicle_id]
                     rv.state = "campus_entry"
                     rv.gate_admitted_tick = tick
+                    gate_throughput[rv.vehicle.entry_gate] += 1
             for gate_id in ([] if gate_sim is not None else open_gate_ids):
                 # service_rate (veh/min) x dt: fractional credit accumulates, at most one tick's worth (min 1)
                 rate_per_tick = gates[gate_id]["capacity"] * step_min
@@ -374,6 +376,7 @@ class SimulationEngine:
                     rv.state = "campus_entry"
                     rv.gate_admitted_tick = tick
                     gate_credit[gate_id] -= 1.0
+                    gate_throughput[gate_id] += 1
 
             for rv in running_vehicles:
                 if rv.state == "campus_entry":
@@ -592,11 +595,13 @@ class SimulationEngine:
                 timesteps_metrics.append({
                     "tick": minute,
                     **{f"gate_queue_{g}": gates[g]["queue_length"] for g in gates},
+                    **{f"gate_throughput_{g}": gate_throughput[g] for g in gates},
                     **{f"parking_occupancy_{p}": parking_lots[p]["occupied_spaces"] for p in parking_lots},
                     **{f"overflow_{p}": p in overflow_this_tick for p in parking_lots},
                     **{f"road_load_{r}": road_load[r] for r in roads},
                 })
                 road_load = {r: 0 for r in road_load}
+                gate_throughput = {g: 0 for g in gates}
 
         vehicle_metrics = []
         for rv in running_vehicles:
