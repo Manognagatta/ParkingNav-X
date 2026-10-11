@@ -30,7 +30,7 @@ from digital_twin.config_loader import load_campus_config
 from digital_twin.db import apply_migrations, get_connection
 from digital_twin.simulation.engine import SimulationEngine
 from digital_twin.simulation.scenario import ScenarioLoader
-from digital_twin.simulation.strategy import FirstAvailableStrategy, NearestAvailableStrategy
+from digital_twin.simulation.strategy import FirstAvailableStrategy, Member3Strategy, NearestAvailableStrategy
 
 SCENARIO_DIR = Path("configs/scenarios/vitap")
 CAMPUS_YAML = Path("configs/campus/vitap.yaml")
@@ -106,9 +106,10 @@ def test_m5_total_reassignments_present():
 # ── Strategy comparison ───────────────────────────────────────────────────────
 
 def test_strategy_comparison_different_metrics():
-    """FirstAvailable and NearestAvailable must differ on at least one primary metric."""
+    """All 3 strategies must produce a believable table; B1 and B2 must differ."""
     r_fa = _run("E2_event_placement.yaml", FirstAvailableStrategy())
     r_na = _run("E2_event_placement.yaml", NearestAvailableStrategy())
+    r_m3 = _run("E2_event_placement.yaml", Member3Strategy())
 
     _PRIMARY = [
         "avg_search_time_min",
@@ -118,24 +119,31 @@ def test_strategy_comparison_different_metrics():
         "avg_travel_time_min",
     ]
 
+    def _fmt(v):
+        return str(round(v, 4)) if isinstance(v, float) else str(v)
+
     # Print comparison table (visible in pytest -s)
-    print("\n\nStrategy Comparison — S3 Event Day, seed=7")
-    print(f"{'Metric':<30} {'FirstAvailable':>16} {'NearestAvailable':>18}")
-    print("-" * 66)
+    print("\n\nStrategy Comparison -- S3 Event Day, seed=7")
+    print(f"{'Metric':<30} {'B1-FirstAvail':>15} {'B2-Nearest':>12} {'M3-Optimizer':>14}")
+    print("-" * 75)
     for k in _PRIMARY:
-        fa_val = r_fa.metrics.get(k, "N/A")
-        na_val = r_na.metrics.get(k, "N/A")
-        print(f"{k:<30} {str(round(fa_val, 4) if isinstance(fa_val, float) else fa_val):>16} {str(round(na_val, 4) if isinstance(na_val, float) else na_val):>18}")
+        print(f"{k:<30} {_fmt(r_fa.metrics.get(k,'N/A')):>15} {_fmt(r_na.metrics.get(k,'N/A')):>12} {_fmt(r_m3.metrics.get(k,'N/A')):>14}")
     print()
 
-    different = any(
+    # B1 and B2 must differ on at least one primary metric
+    b1_b2_different = any(
         abs(r_fa.metrics.get(k, 0) - r_na.metrics.get(k, 0)) > 1e-9
         for k in _PRIMARY
     )
-    assert different, (
-        "FirstAvailable and NearestAvailable produced identical metrics on all 5 primary fields — "
+    assert b1_b2_different, (
+        "B1-FirstAvailable and B2-NearestAvailable produced identical metrics -- "
         "strategies are not being distinguished by the engine"
     )
+
+    # All 3 results must have believable search times
+    for label, r in [("B1", r_fa), ("B2", r_na), ("M3", r_m3)]:
+        st = r.metrics["avg_search_time_min"]
+        assert 0 < st < 30, f"{label} avg_search_time_min out of believable range: {st}"
 
 
 # ── Hand-check 3 vehicles ─────────────────────────────────────────────────────
