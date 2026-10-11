@@ -387,11 +387,6 @@ class TestCruising:
         """A vehicle that cruises (assigned lot full on arrival) should have
         higher travel_distance than one that parks directly.
         Force cruising by using very high demand on a small scenario."""
-        c = get_connection(str(PROJECT_ROOT / "runs" / "cruising_test.db"))
-        apply_migrations(c)
-        load_campus_config(PROJECT_ROOT / "configs" / "campus" / "vitap.yaml", c)
-        eng = SimulationEngine()
-
         with open(SCENARIOS / "E1_normal_day.yaml") as f:
             raw = yaml.safe_load(f)
 
@@ -401,7 +396,7 @@ class TestCruising:
         low["random_seed"] = 10
         low["duration_minutes"] = 60
         low["warmdown_minutes"] = 0
-        res_low = eng.run(ScenarioLoader.from_dict(low), FirstAvailableStrategy(), c)
+        res_low = engine.run(ScenarioLoader.from_dict(low), FirstAvailableStrategy(), conn)
 
         # High demand forces lot fills and cruising
         high = dict(raw)
@@ -410,11 +405,7 @@ class TestCruising:
         high["duration_minutes"] = 60
         high["warmdown_minutes"] = 0
         high["arrival_rate_profile"] = {"type": "constant", "rate": 8.0}
-        res_high = eng.run(ScenarioLoader.from_dict(high), FirstAvailableStrategy(), c)
-        c.close()
-
-        import os
-        os.remove(PROJECT_ROOT / "runs" / "cruising_test.db")
+        res_high = engine.run(ScenarioLoader.from_dict(high), FirstAvailableStrategy(), conn)
 
         dist_low = [v["travel_distance_meters"] for v in res_low.vehicles if v["travel_distance_meters"] > 0]
         dist_high = [v["travel_distance_meters"] for v in res_high.vehicles if v["travel_distance_meters"] > 0]

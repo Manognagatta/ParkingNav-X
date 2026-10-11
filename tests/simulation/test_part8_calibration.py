@@ -75,6 +75,19 @@ def test_cb4_mae_is_finite_and_positive():
     assert mae > 0, f"MAE must be > 0 (simulation produced no occupancy if 0): {mae}"
 
 
+# ── CB4b: sim_occupied is not all zeros (simulation actually produced occupancy) ─
+
+def test_cb4b_sim_occupied_not_all_zeros():
+    data = json.loads(CAL_JSON.read_text())
+    series = data.get("series", {})
+    sim_occ = series.get("sim_occupied", [])
+    assert len(sim_occ) > 0, "sim_occupied series is empty"
+    assert any(v > 0 for v in sim_occ), (
+        "sim_occupied is all zeros — calibration script used wrong strategy or lot. "
+        "Re-run scripts/build_part8_calibration.py to fix."
+    )
+
+
 # ── CB5: overlay PNG exists ───────────────────────────────────────────────────
 
 def test_cb5_overlay_png_exists():

@@ -224,28 +224,37 @@ class TestStatisticalVerification:
 
     def test_occupancy_never_exceeds_capacity(self, setup):
         """
-        Hard constraint: simulated lot occupancy should never exceed capacity.
-        This tests a fundamental invariant.
+        Hard constraint: simulated lot occupancy (from timesteps) should never exceed
+        the lot's usable capacity at any tick.
         """
         conn = setup
         engine = SimulationEngine()
 
+        # Build usable capacity map from DB
+        usable_cap = {
+            row["parking_lot_id"]: row["usable_capacity"]
+            for row in conn.execute("SELECT parking_lot_id, usable_capacity FROM parking_lots")
+        }
+
         violations = []
 
-        for seed in range(10):
+        for seed in range(5):
             scenario = ScenarioLoader.load('configs/scenarios/vitap/E2_event_placement.yaml')
             scenario.random_seed = seed
             result = engine.run(scenario, FirstAvailableStrategy(), conn)
 
-            for vehicle in result.vehicles:
-                assigned_lot = vehicle.get('assigned_lot_id')
-                if assigned_lot and vehicle.get('final_state') == 'parked':
-                    # Each parked vehicle should fit within lot capacity
-                    # (This is implicitly tested in the simulator, but verify)
-                    pass
+            for ts in result.timesteps:
+                for lot_id, cap in usable_cap.items():
+                    occ = ts.get(f"parking_occupancy_{lot_id}", 0)
+                    if occ > cap:
+                        violations.append(
+                            f"seed={seed} tick={ts['tick']} lot={lot_id}: {occ} > {cap}"
+                        )
 
-        # If we get here without exception, test passes
-        assert len(violations) == 0, f"Found {len(violations)} occupancy violations"
+        assert len(violations) == 0, (
+            f"Found {len(violations)} occupancy-exceeds-capacity violations:\n"
+            + "\n".join(violations[:5])
+        )
 
     def test_arrival_stream_deterministic_per_seed(self, setup):
         """
