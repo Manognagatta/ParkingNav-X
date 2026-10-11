@@ -107,6 +107,9 @@ class SimulationResult:
     adapter_fallbacks: int = 0                       # count of fallbacks to B2 due to timeout/exception
     decision_latencies: list = field(default_factory=list)  # [{tick, latency_ms}] per 5-min decision cycle
     time_step_sec: int = 10                          # engine tick length used for this run
+    config_hash: str = ""                            # SHA-256 of scenario YAML (for reproducibility)
+    git_sha: str = ""                                # HEAD commit SHA at run time
+    runtime_sec: float = 0.0                         # wall-clock seconds for this run
 
     @property
     def metrics(self) -> dict:
@@ -227,6 +230,24 @@ class SimulationEngine:
         errors = ScenarioValidator.validate(scenario, conn)
         if errors:
             raise ValueError(f"Scenario '{scenario.scenario_id}' validation failed:\n" + "\n".join(errors))
+
+        import hashlib
+        import subprocess
+        import time as _time
+
+        _run_start = _time.monotonic()
+
+        # config_hash: SHA-256 of the scenario dict (deterministic, order-stable)
+        _scenario_bytes = json.dumps(scenario.__dict__, sort_keys=True, default=str).encode()
+        _config_hash = hashlib.sha256(_scenario_bytes).hexdigest()[:16]
+
+        # git_sha: HEAD commit at run time (best-effort; empty string on failure)
+        try:
+            _git_sha = subprocess.check_output(
+                ["git", "rev-parse", "--short", "HEAD"], stderr=subprocess.DEVNULL, text=True
+            ).strip()
+        except Exception:
+            _git_sha = ""
 
         rng = random.Random(scenario.random_seed)  # the ONE seeded RNG for this entire run
 
@@ -727,6 +748,8 @@ class SimulationEngine:
             vehicles=vehicle_metrics, timesteps=timesteps_metrics, overflow_events=overflow_events,
             infeasibility_rejections=infeasibility_rejections, adapter_fallbacks=adapter_fallbacks,
             decision_latencies=decision_latencies, time_step_sec=dt,
+            config_hash=_config_hash, git_sha=_git_sha,
+            runtime_sec=round(_time.monotonic() - _run_start, 3),
         )
 
     @staticmethod

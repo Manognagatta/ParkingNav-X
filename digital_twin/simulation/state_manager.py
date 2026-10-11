@@ -161,7 +161,7 @@ class CampusState:
                 return obj.isoformat()
             return str(obj)
 
-        def _lot(lot: ParkingLotState) -> dict:
+        def _lot(lot: ParkingLotState, travel_time_sec: float = 0.0) -> dict:
             return {
                 "id": lot.id,
                 "capacity": lot.capacity,
@@ -174,6 +174,7 @@ class CampusState:
                 "departures_last_15m": lot.departures_last_15m,
                 "predicted_occupancy_15m": lot.predicted_occupancy_15m,
                 "predicted_occupancy_30m": lot.predicted_occupancy_30m,
+                "travel_time_from_gate_sec": travel_time_sec,
             }
 
         def _gate(gate: GateState) -> dict:
@@ -183,6 +184,7 @@ class CampusState:
                 "queue_length": gate.queue_length,
                 "service_rate_vph": gate.service_rate_vph,
                 "throughput_last_15m": gate.throughput_last_15m,
+                "avg_wait_sec": gate.avg_wait_sec_last_15m,
                 "avg_wait_sec_last_15m": gate.avg_wait_sec_last_15m,
             }
 
@@ -225,16 +227,33 @@ class CampusState:
                 "affected_zones": list(e.affected_zones),
             }
 
+        _pending = sum(
+            1 for v in self.vehicles.values()
+            if getattr(v, "state", None) not in (None, VehicleStateEnum.EXITED, VehicleStateEnum.PARKED)
+        )
+        _lots_list = [_lot(v) for v in self.lots.values()]
+        _gates_list = [_gate(v) for v in self.gates.values()]
+
         return {
             "timestamp": _encode(self.timestamp),
             "scenario_id": self.scenario_id,
             "seed": self.seed,
+            # dict form kept for internal use (keyed access); lists form for Member 3 contract
             "lots": {k: _lot(v) for k, v in self.lots.items()},
             "gates": {k: _gate(v) for k, v in self.gates.items()},
             "roads": {k: _road(v) for k, v in self.roads.items()},
             "vehicles": {k: _vehicle(v) for k, v in self.vehicles.items()},
             "events": {k: _event(v) for k, v in self.events.items()},
             "event_log": copy.deepcopy(self.event_log),
+            "lots_list": _lots_list,
+            "gates_list": _gates_list,
+            "pending_vehicle": _pending,
+            "global": {
+                "total_occupancy_pct": self.total_occupancy_pct,
+                "total_queue": self.total_queue,
+                "overflow_count": self.overflow_count,
+                "pending_vehicle": _pending,
+            },
             "total_occupancy_pct": self.total_occupancy_pct,
             "total_queue": self.total_queue,
             "overflow_count": self.overflow_count,
@@ -463,3 +482,26 @@ class CampusState:
     def clone(self) -> "CampusState":
         """Return a fully independent deep copy."""
         return copy.deepcopy(self)
+
+    # ── what_if() ─────────────────────────────────────────────────────────────
+
+    def what_if(self, strategy=None, horizon_min: int = 30) -> "CampusState":
+        """Return a projected CampusState after horizon_min minutes.
+
+        Projects lot occupancy using the last-15-min net arrival/departure rate.
+        Gates: queue length projected via (arrivals - service) * horizon.
+        The strategy argument is accepted for API compatibility but not used in
+        the linear projection (full strategy replay would require the engine).
+        """
+        projected = self.clone()
+        for lot in projected.lots.values():
+            arrival_rate = lot.arrivals_last_15m / 15.0   # veh/min
+            depart_rate = lot.departures_last_15m / 15.0
+            net = arrival_rate - depart_rate
+            lot.occupied = max(0, min(lot.capacity, round(lot.occupied + net * horizon_min)))
+        for gate in projected.gates.values():
+            # Simple queue projection: arrivals in window minus service capacity
+            service_rate = gate.service_rate_vph / 60.0   # veh/min
+            net_arrivals = max(0.0, (gate.throughput_last_15m / 15.0) - service_rate)
+            gate.queue_length = max(0, round(gate.queue_length + net_arrivals * horizon_min))
+        return projected
