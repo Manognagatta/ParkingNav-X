@@ -38,7 +38,7 @@ def check(label: str, passed: bool, detail: str = "") -> None:
 # ── Test 1: load vitap_v1 ─────────────────────────────────────────────────────
 print("\n=== Test 1: load vitap_v1 ===")
 try:
-    campus = load_campus("vitap", str(ROOT / "configs" / "campus"))
+    campus = load_campus("vitap_v1", str(ROOT / "configs" / "campus"))
     detail = (
         f"id={campus.id} | gates={len(campus.gates)} | lots={len(campus.parking_lots)} "
         f"| roads={len(campus.roads)} | nodes={len(campus.nodes)}"
@@ -192,7 +192,7 @@ except Exception as exc:
 # ── Test 6: graph PNG saved ───────────────────────────────────────────────────
 print("\n=== Test 6: graph PNG saved ===")
 try:
-    campus = load_campus("vitap", str(ROOT / "configs" / "campus"))
+    campus = load_campus("vitap_v1", str(ROOT / "configs" / "campus"))
     png_path = plot_campus(campus, str(ROOT / "docs" / "campus_graph_vitap_v1.png"))
     exists = Path(png_path).exists()
     check("campus graph PNG saved", exists, f"Saved to: {png_path}")

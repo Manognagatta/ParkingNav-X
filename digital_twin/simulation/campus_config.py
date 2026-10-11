@@ -248,10 +248,7 @@ def plot_campus(campus: CampusConfig, output_path: str) -> str:
     nx.draw_networkx_labels(g, pos, font_size=8, font_color="white", ax=ax)
     nx.draw_networkx_edges(g, pos, edge_color="gray", arrows=True, arrowsize=15, ax=ax)
 
-    # Edge labels = road id
-    edge_labels = {(d["from_node"] if hasattr(d, "from_node") else u, v): d.get("road_id", "")
-                   for u, v, d in g.edges(data=True)}
-    nx.draw_networkx_edge_labels(g, pos, edge_labels=edge_labels, font_size=6, ax=ax)
+    # Edge labels skipped (DiGraph curved-arrow label bug in this networkx version)
 
     # Legend
     from matplotlib.patches import Patch
