@@ -125,12 +125,15 @@ class SimulationResult:
             }
         search_times = [v.get("search_time_seconds", 0) / 60.0 for v in self.vehicles]
         wait_times = [v.get("waiting_time_seconds", 0) / 60.0 for v in self.vehicles]
+        travel_times = [v.get("travel_time_seconds", 0) / 60.0 for v in self.vehicles]
+        travel_distances = [v.get("travel_distance_meters", 0) for v in self.vehicles]
         avg_wait = sum(wait_times) / len(wait_times)
         _parked   = sum(1 for v in self.vehicles if v.get("final_state") == "parked")
         _exited   = sum(1 for v in self.vehicles if v.get("final_state") == "exited")
         _rejected = sum(1 for v in self.vehicles if v.get("final_state") == "rejected")
         _in_sys   = sum(1 for v in self.vehicles if v.get("final_state") == "in_system")
         _total    = len(self.vehicles)
+        _total_reassignments = sum(v.get("reassigned_count", 0) for v in self.vehicles)
         # avg/max gate queue DEPTH (vehicles) computed from per-tick timestep data
         gate_keys = [k for k in (self.timesteps[0] if self.timesteps else {}) if k.startswith("gate_queue_")]
         if gate_keys and self.timesteps:
@@ -141,15 +144,20 @@ class SimulationResult:
             _avg_gq = 0.0
             _max_gq = 0.0
         return {
+            # ── 5 primary metrics (spec) ──────────────────────────────────────
             "avg_search_time_min": sum(search_times) / len(search_times),
             "avg_wait_time_min": avg_wait,
-            "max_search_time_min": max(search_times),
-            "avg_gate_queue": _avg_gq,    # avg queue DEPTH (vehicles), not wait time
-            "max_gate_queue": _max_gq,    # max queue DEPTH (vehicles) at any tick
+            "avg_gate_queue": _avg_gq,          # avg queue DEPTH (vehicles), not wait time
+            "max_gate_queue": _max_gq,          # max queue DEPTH (vehicles) at any tick
             "overflow_events_count": len(self.overflow_events),
+            "avg_travel_time_min": sum(travel_times) / len(travel_times),
+            "total_travel_distance_m": sum(travel_distances),
+            # ── supporting ───────────────────────────────────────────────────
+            "max_search_time_min": max(search_times),
             "total_vehicles": _total,
             "completed_vehicles": _exited,
             "parked_vehicles": _parked,
+            "total_reassignments": _total_reassignments,
             "infeasibility_rejections": self.infeasibility_rejections,
             "adapter_fallbacks": self.adapter_fallbacks,
         }
@@ -168,6 +176,32 @@ class SimulationResult:
         _rejected = sum(1 for v in self.vehicles if v.get("final_state") == "rejected")
         _in_sys   = sum(1 for v in self.vehicles if v.get("final_state") == "in_system")
         _total    = len(self.vehicles)
+        # Utilisation across lots: derive peak occupancy_pct per lot from timestep data
+        lot_occ_keys = [k for k in (self.timesteps[0] if self.timesteps else {}) if k.startswith("parking_occupancy_")]
+        lot_cap_keys = [k for k in (self.timesteps[0] if self.timesteps else {}) if k.startswith("parking_capacity_")]
+        if lot_occ_keys and self.timesteps:
+            # avg utilisation = mean over lots of (mean occupancy_pct across ticks)
+            util_by_lot = []
+            for ok in lot_occ_keys:
+                lot_id = ok.replace("parking_occupancy_", "")
+                ck = f"parking_capacity_{lot_id}"
+                # capacity is constant per lot; take max across ticks (or first non-zero)
+                cap_val = max((ts.get(ck, 0) for ts in self.timesteps), default=0) or 1
+                occ_vals = [ts.get(ok, 0) for ts in self.timesteps]
+                pct_vals = [min(o / cap_val * 100.0, 100.0) for o in occ_vals]
+                util_by_lot.append(sum(pct_vals) / len(pct_vals))
+            _avg_util = sum(util_by_lot) / len(util_by_lot) if util_by_lot else 0.0
+            # utilisation imbalance = std-dev of per-lot mean utilisation
+            mean_u = _avg_util
+            _util_imbalance = (sum((u - mean_u) ** 2 for u in util_by_lot) / len(util_by_lot)) ** 0.5 if util_by_lot else 0.0
+        else:
+            _avg_util = 0.0
+            _util_imbalance = 0.0
+        # Per-decision latency
+        _avg_latency_ms = (
+            sum(d.get("latency_ms", 0) for d in self.decision_latencies) / len(self.decision_latencies)
+            if self.decision_latencies else 0.0
+        )
         return {
             "total_vehicles_simulated": _total,
             "parked": _parked,
@@ -176,6 +210,10 @@ class SimulationResult:
             "rejected": _rejected,
             "allocation_success_rate": round((_parked + _exited) / _total, 4) if _total else 0.0,
             "conservation_check": _total == (_parked + _exited + _in_sys + _rejected),
+            "avg_utilization_pct": round(_avg_util, 2),
+            "utilization_imbalance": round(_util_imbalance, 2),
+            "simulation_runtime_sec": self.runtime_sec,
+            "avg_decision_latency_ms": round(_avg_latency_ms, 3),
             "in_system_breakdown": {
                 "queued": sum(1 for v in self.vehicles if v.get("internal_state") in ("arrival", "gate_queue")),
                 "driving": sum(1 for v in self.vehicles if v.get("internal_state") in ("campus_entry", "route", "parking_search")),
