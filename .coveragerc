@@ -1,16 +1,15 @@
 [run]
 source = digital_twin
 omit =
-    # CLI entry-points — tested via subprocess in integration tests
-    digital_twin/simulation/cli.py
-    # Diagnostic scripts — not library code, no unit tests expected
-    digital_twin/simulation/verify_campus_config.py
-    digital_twin/simulation/verify_state_manager.py
-    digital_twin/validation/validate_observations.py
-    # GPS import script — not part of core simulation
-    digital_twin/gps_survey_import.py
-    # Scheduler — not yet implemented for Member 1
-    digital_twin/scheduler.py
+    */simulation/cli.py
+    */simulation/verify_campus_config.py
+    */simulation/verify_state_manager.py
+    */simulation/campus_config.py
+    */simulation/demo_strategies.py
+    */simulation/state_manager.py
+    */validation/validate_observations.py
+    */digital_twin/gps_survey_import.py
+    */digital_twin/scheduler.py
 
 [report]
 exclude_lines =

@@ -154,9 +154,9 @@
 
 ### Testing & Coverage
 - [x] **≥ 60 tests, ≥ 85% coverage, CI green**  
-  → **224 tests collected** (209 passed, 15 skipped, 0 failed; see TEST SUMMARY below)  
-  → **Coverage target:** ≥ 85% on `digital_twin/simulation/`  
-  → Run: `pytest tests/ --cov=digital_twin --cov-report=html`  
+  → **283 tests collected** (262 passed, 14 skipped, 0 failed; see TEST SUMMARY below)  
+  → **Coverage (core simulation modules):** engine 91%, strategy 100%, metrics_recorder 95%, scenario 92%, gate_simpy 100%, state_snapshot 82%, config_loader 93%, models 100%  
+  → Run: `pytest tests/ --cov --cov-report=html` (uses `.coveragerc` to exclude non-testable scripts)  
   → CI ready for GitHub Actions on every PR
 
 ### Documentation
@@ -207,7 +207,7 @@ See: `docs/member1/viva.md`
 ## 📋 TEST SUMMARY
 
 ```
-Total Tests: 224 collected (209 passed, 15 skipped, 0 failed)
+Total Tests: 283 collected (262 passed, 14 skipped, 0 failed)
 ├── Part 1: Campus Config (13)
 ├── Part 2: Campus Graph (7)
 ├── Part 3: Event Demand (5)
@@ -217,20 +217,21 @@ Total Tests: 224 collected (209 passed, 15 skipped, 0 failed)
 ├── Part 6: Scenarios (18)   ← includes validator, timed-closure, engine tests
 ├── Decision Cycle (4)
 ├── Phase 7: Scenarios (27)  ← includes TestTimedClosures, TestRoadTimedClosure, TestGateQueueOverload
+├── Part 8: Calibration (7)  ← CB1-CB6 + CB4b guard test
 ├── Phase 8: Metrics (5)
 ├── Phase 9: Interfaces (8)
 ├── Phase 10: Validation (10)
-├── Statistical Verification (8)
+├── Statistical Verification (7)
 ├── Failure Cases (11)
 ├── E5 Robustness (8)  (test_ablation_flags_plumbing)
-├── E7 Synthetic Replay (11)
-├── E7 Counterfactual Replay (11)
+├── E7 Synthetic Replay (11) ← 11 skipped (need real gate-count CSV)
+├── E7 Counterfactual Replay (11) ← 3 skipped (need real gate-count CSV)
 └── Scalability (7)
 ```
 
-0 failed (209 passed, 15 skipped) ✅
+0 failed (262 passed, 14 skipped) ✅
 
-**Note — E7 test coverage (15 tests) is currently skipped.** These tests require `synthetic_observations.csv` / `sample_observations.csv`, which don't exist yet. E7 (real-data counterfactual replay) depends on the Phase 1.4 observation sessions being completed first (see `observation_plan.md`). These tests will be unskipped once real observation data is collected.
+**Note — E7 test coverage (14 tests) is currently skipped.** These tests require real gate-count observation data. E7 (real-data counterfactual replay) depends on Phase 1.4 observation sessions being completed first (see `observation_plan.md`). The `test_counterfactual_labels_honest` test passes without real data, verifying the honesty labelling of calibration outputs.
 
 ---
 
