@@ -132,3 +132,28 @@ class NearestAvailableStrategy(AllocationStrategy):
 
         candidates.sort()
         return AssignmentResult(parking_lot_id=candidates[0][1])
+
+
+class Member3Strategy(AllocationStrategy):
+    """Placeholder for Member 3's optimizer strategy.
+
+    Interface contract: Member 3 replaces this body with their optimizer.
+    Until then it delegates to NearestAvailable so the 3-strategy comparison
+    table can run. The label is intentionally distinct so metrics show it.
+
+    Member 3: implement assign() here (and optionally update_policy() for
+    the 5-minute forecast update cycle). Do NOT rename the class or label.
+    """
+
+    label = "M3-Optimizer"
+
+    def __init__(self):
+        self._fallback = NearestAvailableStrategy()
+
+    def assign(self, vehicle: Vehicle, campus_state: CampusState) -> AssignmentResult:
+        # TODO: replace with Member 3's optimizer logic
+        return self._fallback.assign(vehicle, campus_state)
+
+    def update_policy(self, state_snapshot: dict, forecast: dict = None) -> None:
+        # TODO: replace with Member 3's policy update (forecast-driven)
+        pass
