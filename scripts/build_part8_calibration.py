@@ -77,18 +77,20 @@ from digital_twin.config_loader import load_campus_config
 from digital_twin.db import apply_migrations, get_connection
 from digital_twin.simulation.engine import SimulationEngine
 from digital_twin.simulation.scenario import ScenarioLoader
-from digital_twin.simulation.strategy import NearestAvailableStrategy
+from digital_twin.simulation.strategy import FirstAvailableStrategy
 
 conn = get_connection(":memory:")
 apply_migrations(conn)
 load_campus_config(ROOT / "configs" / "campus" / "vitap.yaml", conn)
 
 # Use E1 normal day scenario (matches 2024-01-15 profile)
+# B1 (FirstAvailable) fills academic-main first (config order: academic → hostel → …),
+# matching the synthetic observations which track academic-main occupancy.
 scenario = ScenarioLoader.load(ROOT / "configs" / "scenarios" / "vitap" / "E1_normal_day.yaml")
 scenario.random_seed = 7
 
 engine = SimulationEngine(runs_dir=tempfile.mkdtemp())
-result = engine.run(scenario, NearestAvailableStrategy(), conn)
+result = engine.run(scenario, FirstAvailableStrategy(), conn)
 print(f"  Run complete: {result.secondary_metrics['total_vehicles_simulated']} vehicles, "
       f"runtime={result.runtime_sec:.1f}s")
 
@@ -106,6 +108,11 @@ lot_ids = sorted(set(
     if k.startswith("parking_occupancy_")
 ))
 
+# Read lot capacities directly from the DB (timesteps don't carry capacity)
+lot_caps = {}
+for row in conn.execute("SELECT parking_lot_id, total_capacity FROM parking_lots"):
+    lot_caps[row["parking_lot_id"]] = row["total_capacity"]
+
 sim_by_interval = []  # [{interval_idx, lot_id, simulated_occupied, simulated_occ_pct}]
 n_intervals = math.ceil(len(result.timesteps) / ticks_per_15m)
 
@@ -117,9 +124,8 @@ for i in range(n_intervals):
         continue
     for lot_id in lot_ids:
         occ_key = f"parking_occupancy_{lot_id}"
-        cap_key = f"parking_capacity_{lot_id}"
         occ_vals = [ts.get(occ_key, 0) for ts in window]
-        cap_val  = max((ts.get(cap_key, 0) for ts in window), default=1) or 1
+        cap_val  = lot_caps.get(lot_id, 1) or 1
         avg_occ  = sum(occ_vals) / len(occ_vals)
         sim_by_interval.append({
             "interval_idx":      i,
@@ -180,7 +186,7 @@ cal_results = {
     "calibration_date": "2024-01-15",
     "scenario_used": "E1_normal_day",
     "seed": 7,
-    "strategy": "B2-NearestAvailable",
+    "strategy": "B1-FirstAvailable",
     "primary_lot": PRIMARY_LOT,
     "matched_intervals": n_match,
     "data_source": "synthetic (labeled; replace with real counts before final submission)",
@@ -241,7 +247,7 @@ try:
 
     # Top: absolute occupancy
     ax1.plot(intervals, real_occ, "o-", color="#2196F3", label="Observed (synthetic)", linewidth=2, markersize=4)
-    ax1.plot(intervals, sim_occ,  "s--", color="#F44336", label="Simulated (B2-Nearest)", linewidth=2, markersize=4)
+    ax1.plot(intervals, sim_occ,  "s--", color="#F44336", label="Simulated (B1-FirstAvailable)", linewidth=2, markersize=4)
     ax1.set_ylabel("Occupied Spaces")
     ax1.set_title(f"Occupied Spaces — MAE={mae_occ:.1f} spaces, RMSE={rmse_occ:.1f}, Bias={bias_occ:+.1f}")
     ax1.legend()

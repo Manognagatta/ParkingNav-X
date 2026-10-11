@@ -207,20 +207,42 @@ class TestCounterfactualReplayE7:
         assert metrics.get('avg_search_time_min', 0) >= 0
         assert metrics.get('avg_wait_time_min', 0) >= 0
 
-    def test_counterfactual_labels_honest(self, synthetic_observations, setup):
+    def test_counterfactual_labels_honest(self, setup):
         """
-        Critical: all counterfactual results must be labelled as
-        'simulation-based estimates', not real intervention results.
+        Critical: calibration data source must be labelled synthetic/simulation,
+        not real, and E7 replay scenario must carry an honest description.
         """
-        # This is a documentation/reporting requirement
-        # We verify that output from E7 replay includes explicit labeling
+        import json
+        from pathlib import Path
+        ROOT = Path(__file__).resolve().parent.parent.parent
 
-        # When reporting E7 results, they should always say:
-        # "This is a simulation-based estimate of what would have happened
-        #  if ParkingNav-X had been deployed on 2026-10-15."
+        # Verify calibration results JSON marks data as synthetic
+        cal_path = ROOT / "data" / "part8_calibration_results.json"
+        assert cal_path.exists(), "Calibration JSON must exist"
+        cal = json.loads(cal_path.read_text())
+        assert "synthetic" in cal.get("data_source", "").lower(), (
+            f"Calibration data_source must say 'synthetic'; got: {cal.get('data_source')}"
+        )
 
-        # For now, we just verify the test structure is in place
-        assert True, "E7 results must be honestly labelled as estimates"
+        # Verify E7 replay scenario YAML exists and has a scenario_id
+        import yaml
+        e7_path = ROOT / "configs" / "scenarios" / "vitap" / "E7_replay.yaml"
+        assert e7_path.exists(), "E7_replay.yaml must exist"
+        e7 = yaml.safe_load(e7_path.read_text())
+        assert e7.get("scenario_id"), "E7 scenario must have a scenario_id"
+
+        # Verify vitap_observations.csv marks all rows as synthetic
+        import csv
+        obs_path = ROOT / "data" / "observations" / "vitap_observations.csv"
+        assert obs_path.exists(), "vitap_observations.csv must exist"
+        with open(obs_path, newline="") as f:
+            reader = csv.DictReader(f)
+            rows = list(reader)
+        assert len(rows) > 0, "Observations CSV must have data rows"
+        non_synthetic = [r for r in rows if r.get("source", "") != "synthetic"]
+        assert len(non_synthetic) == 0, (
+            f"{len(non_synthetic)} rows not labelled 'synthetic' in vitap_observations.csv"
+        )
 
     def test_e7_replay_captures_overflow(self, synthetic_observations, setup):
         """
