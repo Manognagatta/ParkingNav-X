@@ -429,23 +429,31 @@ def export_geojson(campus_id: str) -> dict:
 
 def make_dataset(campus_id: str, scenario_paths: list, seeds: list, output_path: str) -> dict:
     """
-    Export ML training dataset from simulation runs (for Member 2).
+    Export ML training dataset (timeseries format) from simulation runs — for Member 2.
 
-    Args:
-        campus_id: e.g. "vitap"
-        scenario_paths: list of YAML scenario paths to run
-        seeds: list of random seeds per scenario
-        output_path: path to write CSV (e.g. "data/ml_dataset.csv")
+    Produces one row per 5-minute window per parking lot with 25 columns matching
+    the M2 input contract. Output is written to output_path (CSV).
 
     Returns:
         {"rows": int, "columns": list, "path": str}
     """
     import csv
+    import math
     from pathlib import Path
 
     from digital_twin.simulation.engine import SimulationEngine
     from digital_twin.simulation.scenario import ScenarioLoader
     from digital_twin.simulation.strategy import FirstAvailableStrategy
+
+    _COLUMNS = [
+        "timestamp", "scenario_id", "seed", "day_type", "event_type", "event_intensity",
+        "minutes_to_event_start", "hour", "minute", "weekday",
+        "lot_id", "capacity", "occupied", "occupancy_pct",
+        "arrivals_5m", "departures_5m",
+        "gate_id", "gate_arrivals_5m", "queue_length", "avg_wait_sec",
+        "avg_travel_time_sec", "road_congestion_ratio_mean",
+        "congestion_level", "lot_status", "gate_status", "source",
+    ]
 
     engine = SimulationEngine()
     rows = []
@@ -456,27 +464,132 @@ def make_dataset(campus_id: str, scenario_paths: list, seeds: list, output_path:
             scenario.campus_id = campus_id
             scenario.random_seed = seed
             result = engine.run(scenario, FirstAvailableStrategy(), _conn)
-            for v in result.vehicles:
-                rows.append({
-                    "scenario_id": scenario.scenario_id,
-                    "seed": seed,
-                    "arrival_time": v.get("arrival_time"),
-                    "assigned_lot_id": v.get("assigned_lot_id"),
-                    "search_time_min": v.get("search_time_seconds", 0) / 60.0,
-                    "wait_time_min": v.get("waiting_time_seconds", 0) / 60.0,
-                    "final_state": v.get("final_state"),
-                    "complied": v.get("complied"),
-                    "travel_distance_m": v.get("travel_distance_meters", 0),
-                })
 
-    columns = list(rows[0].keys()) if rows else []
+            ts_list = result.timesteps  # one dict per engine tick (default 10 s)
+            if not ts_list:
+                continue
+
+            # Derive scenario-level context
+            ec = scenario.event_conditions or {}
+            event_type = ec.get("type", "none")
+            event_intensity = ec.get("demand_multiplier", 1.0)
+            event_start_min = ec.get("start_tick", None)
+
+            # Identify lot and gate keys from first timestep
+            first_ts = ts_list[0]
+            lot_keys = sorted(k.replace("parking_occupancy_", "") for k in first_ts if k.startswith("parking_occupancy_"))
+            gate_keys = sorted(k.replace("gate_queue_", "") for k in first_ts if k.startswith("gate_queue_"))
+
+            # Aggregate into 5-minute buckets (ticks_per_5min based on time_step_sec)
+            ticks_per_min = 60 // result.time_step_sec
+            ticks_per_5m = 5 * ticks_per_min
+            total_ticks = len(ts_list)
+            n_windows = math.ceil(total_ticks / ticks_per_5m)
+
+            for w in range(n_windows):
+                start_idx = w * ticks_per_5m
+                end_idx = min(start_idx + ticks_per_5m, total_ticks)
+                window = ts_list[start_idx:end_idx]
+                if not window:
+                    continue
+
+                t_min = w * 5  # minutes from sim start
+                hour = (t_min // 60) % 24
+                minute = t_min % 60
+                weekday = 1  # scenarios don't encode weekday; default Monday
+
+                # Road congestion mean across all road keys
+                road_cong_keys = [k for k in first_ts if k.startswith("road_congestion_")]
+                if road_cong_keys:
+                    road_cong_mean = sum(
+                        sum(tick.get(k, 0.0) for k in road_cong_keys) / len(road_cong_keys)
+                        for tick in window
+                    ) / len(window)
+                else:
+                    road_cong_mean = 0.0
+
+                # Congestion level from mean ratio
+                if road_cong_mean == 0:
+                    cong_level = "free"
+                elif road_cong_mean < 0.5:
+                    cong_level = "moderate"
+                elif road_cong_mean < 1.0:
+                    cong_level = "heavy"
+                else:
+                    cong_level = "blocked"
+
+                minutes_to_event = ""
+                if event_start_min is not None:
+                    minutes_to_event = max(0, event_start_min - t_min)
+
+                # One row per lot
+                for lot_id in lot_keys:
+                    occ_key = f"parking_occupancy_{lot_id}"
+                    cap_key = f"parking_capacity_{lot_id}"
+                    status_key = f"parking_status_{lot_id}"
+
+                    occ_vals = [tick.get(occ_key, 0) for tick in window]
+                    cap_val = window[-1].get(cap_key, 0) or 1
+                    avg_occ = sum(occ_vals) / len(occ_vals)
+                    end_occ = occ_vals[-1]
+                    arrivals_5m = max(0, occ_vals[-1] - occ_vals[0])
+                    departures_5m = max(0, occ_vals[0] - occ_vals[-1])
+                    lot_status = window[-1].get(status_key, "open")
+
+                    # Nearest gate (first gate key used as proxy)
+                    gate_id = gate_keys[0] if gate_keys else ""
+                    gate_arrivals_key = f"gate_throughput_{gate_id}" if gate_id else ""
+                    gate_arrivals_5m = sum(tick.get(gate_arrivals_key, 0) for tick in window) if gate_arrivals_key else 0
+                    queue_key = f"gate_queue_{gate_id}" if gate_id else ""
+                    avg_queue = sum(tick.get(queue_key, 0) for tick in window) / len(window) if queue_key else 0.0
+                    wait_key = f"gate_avg_wait_{gate_id}" if gate_id else ""
+                    avg_wait = sum(tick.get(wait_key, 0.0) for tick in window) / len(window) if wait_key else 0.0
+                    gate_status_key = f"gate_status_{gate_id}" if gate_id else ""
+                    gate_status = window[-1].get(gate_status_key, "open")
+
+                    # Avg travel time from vehicle records (approximate per lot)
+                    lot_vehicles = [v for v in result.vehicles if v.get("assigned_lot_id") == lot_id]
+                    avg_travel = (
+                        sum(v.get("travel_time_seconds", 0) for v in lot_vehicles) / len(lot_vehicles)
+                        if lot_vehicles else 0.0
+                    )
+
+                    rows.append({
+                        "timestamp": f"{t_min:04d}",
+                        "scenario_id": scenario.scenario_id,
+                        "seed": seed,
+                        "day_type": "weekday",
+                        "event_type": event_type,
+                        "event_intensity": event_intensity,
+                        "minutes_to_event_start": minutes_to_event,
+                        "hour": hour,
+                        "minute": minute,
+                        "weekday": weekday,
+                        "lot_id": lot_id,
+                        "capacity": cap_val,
+                        "occupied": round(end_occ),
+                        "occupancy_pct": round(end_occ / cap_val * 100, 2),
+                        "arrivals_5m": arrivals_5m,
+                        "departures_5m": departures_5m,
+                        "gate_id": gate_id,
+                        "gate_arrivals_5m": gate_arrivals_5m,
+                        "queue_length": round(avg_queue, 2),
+                        "avg_wait_sec": round(avg_wait, 2),
+                        "avg_travel_time_sec": round(avg_travel, 2),
+                        "road_congestion_ratio_mean": round(road_cong_mean, 4),
+                        "congestion_level": cong_level,
+                        "lot_status": lot_status,
+                        "gate_status": gate_status,
+                        "source": "simulation",
+                    })
+
     Path(output_path).parent.mkdir(parents=True, exist_ok=True)
     with open(output_path, "w", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=columns)
+        writer = csv.DictWriter(f, fieldnames=_COLUMNS)
         writer.writeheader()
         writer.writerows(rows)
 
-    return {"rows": len(rows), "columns": columns, "path": output_path}
+    return {"rows": len(rows), "columns": _COLUMNS, "path": output_path}
 
 
 def validate_scenario(scenario_dict: dict) -> Tuple[bool, List[str]]:
