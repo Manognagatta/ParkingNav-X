@@ -212,6 +212,30 @@ def cmd_validate_campus(args):
 # ── subcommand: validate ─────────────────────────────────────────────────────
 
 def cmd_validate(args):
+    # If no --scenario given, do campus-only validation (Part 1 / M1)
+    if not getattr(args, "scenario", None):
+        from digital_twin.simulation.campus_config import load_campus, build_digraph, plot_campus
+        from pydantic import ValidationError
+
+        try:
+            campus = load_campus(args.campus)
+        except (FileNotFoundError, ValidationError) as exc:
+            print(f"INVALID — campus '{args.campus}' failed validation:\n{exc}")
+            sys.exit(1)
+
+        g = build_digraph(campus)
+        docs_dir = ROOT / "docs"
+        png_path = plot_campus(campus, str(docs_dir / f"campus_graph_{campus.id}.png"))
+
+        print(
+            f"Campus valid — '{campus.id}' | {len(campus.gates)} gates | "
+            f"{len(campus.parking_lots)} lots | {len(campus.roads)} roads | "
+            f"{len(campus.nodes)} nodes"
+        )
+        print(f"Graph PNG saved: {png_path}")
+        return
+
+    # --scenario provided: validate scenario against loaded campus
     campus_yaml = _resolve_campus_yaml(args.campus)
     scenario_yaml = _resolve_scenario_yaml(args.campus, args.scenario)
 
@@ -290,10 +314,10 @@ def main(prog: str = "python -m digital_twin.simulation.cli"):
     p_vc = sub.add_parser("validate-campus", help="Validate a campus YAML and print entity counts")
     p_vc.add_argument("--campus", required=True, help="Campus id (e.g. vitap, toy_small)")
 
-    # validate
-    p_val = sub.add_parser("validate", help="Validate a scenario YAML against a loaded campus")
+    # validate — campus-only (M1) when --scenario is omitted; scenario validation otherwise
+    p_val = sub.add_parser("validate", help="Validate campus config (M1) or a scenario YAML against a loaded campus")
     p_val.add_argument("--campus",   required=True)
-    p_val.add_argument("--scenario", required=True)
+    p_val.add_argument("--scenario", default=None, help="Scenario id (optional; omit for campus-only validation)")
 
     # make-dataset
     p_ds = sub.add_parser("make-dataset", help="Export ML training dataset (for Member 2)")
