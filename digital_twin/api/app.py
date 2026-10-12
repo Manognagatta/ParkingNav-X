@@ -18,7 +18,7 @@ from digital_twin.simulation.strategy import FirstAvailableStrategy, NearestAvai
 
 ROOT = Path(__file__).resolve().parent.parent.parent
 DB_PATH = ROOT / "digital_twin.db"
-CAMPUS_YAML = ROOT / "configs" / "campuses" / "vitap.yaml"
+CAMPUS_YAML = ROOT / "configs" / "campus" / "vitap.yaml"
 SCENARIO_DIR = ROOT / "configs" / "scenarios" / "vitap"
 
 app = FastAPI(
@@ -52,8 +52,8 @@ def get_conn():
 # ── Models ────────────────────────────────────────────────────────────────────
 
 class SimulateRequest(BaseModel):
-    scenario: str = "peak_hour"
-    strategy: str = "P"
+    scenario: str
+    strategy: str
 
 
 # ── Routes ────────────────────────────────────────────────────────────────────
@@ -145,9 +145,9 @@ def simulate(req: SimulateRequest):
             "parked_vehicles":      m.get("parked_vehicles"),
             "completed_trips":      m.get("completed_vehicles"),
             "overflow_events":      m.get("overflow_events_count"),
-            "avg_search_time_min":  round(m["avg_search_time_min"], 2) if m.get("avg_search_time_min") else None,
-            "avg_wait_time_min":    round(m["avg_wait_time_min"], 2)   if m.get("avg_wait_time_min")   else None,
-            "avg_gate_queue":       round(m["avg_gate_queue"], 2)      if m.get("avg_gate_queue")      else None,
+            "avg_search_time_min":  round(m["avg_search_time_min"], 2) if m.get("avg_search_time_min") is not None else None,
+            "avg_wait_time_min":    round(m["avg_wait_time_min"], 2)   if m.get("avg_wait_time_min") is not None else None,
+            "avg_gate_queue":       round(m["avg_gate_queue"], 2)      if m.get("avg_gate_queue")    is not None  else None,
             "peak_gate_queue":      m.get("max_gate_queue"),
         },
     }
@@ -175,9 +175,9 @@ def compare_strategies(scenario: str):
         m = result.metrics
         results[code] = {
             "overflow_events":     m.get("overflow_events_count"),
-            "avg_search_time_min": round(m["avg_search_time_min"], 2) if m.get("avg_search_time_min") else None,
-            "avg_wait_time_min":   round(m["avg_wait_time_min"], 2)   if m.get("avg_wait_time_min")   else None,
-            "avg_gate_queue":      round(m["avg_gate_queue"], 2)      if m.get("avg_gate_queue")      else None,
+            "avg_search_time_min": round(m["avg_search_time_min"], 2) if m.get("avg_search_time_min") is not None else None,
+            "avg_wait_time_min":   round(m["avg_wait_time_min"], 2)   if m.get("avg_wait_time_min") is not None  else None,
+            "avg_gate_queue":      round(m["avg_gate_queue"], 2)      if m.get("avg_gate_queue")    is not None  else None,
             "peak_gate_queue":     m.get("max_gate_queue"),
         }
     conn.close()
