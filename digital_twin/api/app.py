@@ -2,9 +2,14 @@
 ParkingNav-X REST API
 VIT-AP University Smart Parking Digital Twin
 """
+<<<<<<< HEAD
 from pathlib import Path
 from typing import Optional
 import uuid
+=======
+import uuid
+from pathlib import Path
+>>>>>>> 7e7480a3c640692a24ace314c17353395f1eb2fc
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -12,6 +17,7 @@ from pydantic import BaseModel
 
 from digital_twin.config_loader import load_campus_config
 from digital_twin.db import apply_migrations, get_connection
+<<<<<<< HEAD
 from digital_twin.simulation.engine import SimulationEngine
 from digital_twin.simulation.scenario import ScenarioLoader
 from digital_twin.simulation.strategy import FirstAvailableStrategy, NearestAvailableStrategy
@@ -20,6 +26,16 @@ from digital_twin.simulation.demo_strategies import PredictionOnlyStrategy, Park
 ROOT = Path(__file__).resolve().parent.parent.parent
 DB_PATH = ROOT / "digital_twin.db"
 CAMPUS_YAML = ROOT / "configs" / "campuses" / "vitap.yaml"
+=======
+from digital_twin.simulation.demo_strategies import ParkingNavXFullStrategy, PredictionOnlyStrategy
+from digital_twin.simulation.engine import SimulationEngine
+from digital_twin.simulation.scenario import ScenarioLoader
+from digital_twin.simulation.strategy import FirstAvailableStrategy, NearestAvailableStrategy
+
+ROOT = Path(__file__).resolve().parent.parent.parent
+DB_PATH = ROOT / "digital_twin.db"
+CAMPUS_YAML = ROOT / "configs" / "campus" / "vitap.yaml"
+>>>>>>> 7e7480a3c640692a24ace314c17353395f1eb2fc
 SCENARIO_DIR = ROOT / "configs" / "scenarios" / "vitap"
 
 app = FastAPI(
@@ -53,8 +69,13 @@ def get_conn():
 # ── Models ────────────────────────────────────────────────────────────────────
 
 class SimulateRequest(BaseModel):
+<<<<<<< HEAD
     scenario: str = "peak_hour"
     strategy: str = "P"
+=======
+    scenario: str
+    strategy: str
+>>>>>>> 7e7480a3c640692a24ace314c17353395f1eb2fc
 
 
 # ── Routes ────────────────────────────────────────────────────────────────────
@@ -146,9 +167,15 @@ def simulate(req: SimulateRequest):
             "parked_vehicles":      m.get("parked_vehicles"),
             "completed_trips":      m.get("completed_vehicles"),
             "overflow_events":      m.get("overflow_events_count"),
+<<<<<<< HEAD
             "avg_search_time_min":  round(m["avg_search_time_min"], 2) if m.get("avg_search_time_min") else None,
             "avg_wait_time_min":    round(m["avg_wait_time_min"], 2)   if m.get("avg_wait_time_min")   else None,
             "avg_gate_queue":       round(m["avg_gate_queue"], 2)      if m.get("avg_gate_queue")      else None,
+=======
+            "avg_search_time_min":  round(m["avg_search_time_min"], 2) if m.get("avg_search_time_min") is not None else None,
+            "avg_wait_time_min":    round(m["avg_wait_time_min"], 2)   if m.get("avg_wait_time_min") is not None else None,
+            "avg_gate_queue":       round(m["avg_gate_queue"], 2)      if m.get("avg_gate_queue")    is not None  else None,
+>>>>>>> 7e7480a3c640692a24ace314c17353395f1eb2fc
             "peak_gate_queue":      m.get("max_gate_queue"),
         },
     }
@@ -176,9 +203,15 @@ def compare_strategies(scenario: str):
         m = result.metrics
         results[code] = {
             "overflow_events":     m.get("overflow_events_count"),
+<<<<<<< HEAD
             "avg_search_time_min": round(m["avg_search_time_min"], 2) if m.get("avg_search_time_min") else None,
             "avg_wait_time_min":   round(m["avg_wait_time_min"], 2)   if m.get("avg_wait_time_min")   else None,
             "avg_gate_queue":      round(m["avg_gate_queue"], 2)      if m.get("avg_gate_queue")      else None,
+=======
+            "avg_search_time_min": round(m["avg_search_time_min"], 2) if m.get("avg_search_time_min") is not None else None,
+            "avg_wait_time_min":   round(m["avg_wait_time_min"], 2)   if m.get("avg_wait_time_min") is not None  else None,
+            "avg_gate_queue":      round(m["avg_gate_queue"], 2)      if m.get("avg_gate_queue")    is not None  else None,
+>>>>>>> 7e7480a3c640692a24ace314c17353395f1eb2fc
             "peak_gate_queue":     m.get("max_gate_queue"),
         }
     conn.close()

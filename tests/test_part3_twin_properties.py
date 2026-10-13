@@ -1,4 +1,4 @@
-"""
+﻿"""
 Phase 2 — Digital Twin property tests.
 
 Property-based testing with Hypothesis: for 100,000+ random valid transition
@@ -13,18 +13,20 @@ All transitions respect campus constraints (capacity bounds, status flags, etc.)
 """
 
 import json
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
-from hypothesis import given, settings, strategies as st
+from hypothesis import HealthCheck, given, settings
+from hypothesis import strategies as st
+from hypothesis.database import InMemoryExampleDatabase
 
 from digital_twin.config_loader import load_campus_config
 from digital_twin.db import apply_migrations, get_connection
 from digital_twin.twin_service import DigitalTwinService
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-CONFIGS = PROJECT_ROOT / "configs" / "campuses"
+CONFIGS = PROJECT_ROOT / "configs" / "campus"
 
 
 @pytest.fixture
@@ -59,45 +61,59 @@ def gate_updates(draw):
     return gate_id, queue, throughput
 
 
-def test_1000_random_parking_transitions_never_violate_invariants(conn, twin):
+def test_1000_random_parking_transitions_never_violate_invariants():
     """Property: 1,000 random valid parking updates never cause invariants to break."""
 
     @given(updates=st.lists(parking_updates(), min_size=1, max_size=1000))
-    @settings(max_examples=100)  # 100 test cases × up to 1000 transitions each = 100k+ transitions
+    @settings(max_examples=100, database=InMemoryExampleDatabase(),
+              suppress_health_check=[HealthCheck.too_slow])
     def prop_parking_invariants(updates):
+        # Fresh in-memory DB per Hypothesis example — no shared state between examples
+        c = get_connection(":memory:")
+        apply_migrations(c)
+        load_campus_config(CONFIGS / "sample.yaml", c)
+        t = DigitalTwinService(debug_mode=True)
         now = datetime.now(timezone.utc)
         for lot_id, occupied in updates:
             try:
-                twin.update_parking_state(
-                    "sample", lot_id, occupied, "test", "SYNTHETIC", now.isoformat(), conn, now=now
+                t.update_parking_state(
+                    "sample", lot_id, occupied, "test", "SYNTHETIC", now.isoformat(), c, now=now
                 )
             except AssertionError as e:
                 if "Invariant violation" in str(e):
                     pytest.fail(f"Invariant broke on valid update: {e}")
                 raise
-        errors = twin.check_invariants("sample", conn)
+        errors = t.check_invariants("sample", c)
+        c.close()
         assert errors == [], f"Invariants broken: {errors}"
 
     prop_parking_invariants()
 
 
-def test_1000_random_gate_transitions_never_violate_invariants(conn, twin):
+def test_1000_random_gate_transitions_never_violate_invariants():
     """Property: 1,000 random valid gate updates never cause invariants to break."""
 
     @given(updates=st.lists(gate_updates(), min_size=1, max_size=1000))
-    @settings(max_examples=100)
+    @settings(max_examples=100, database=InMemoryExampleDatabase(),
+              suppress_health_check=[HealthCheck.too_slow])
     def prop_gate_invariants(updates):
+        # Fresh in-memory DB per Hypothesis example — no shared state between examples
+        c = get_connection(":memory:")
+        apply_migrations(c)
+        load_campus_config(CONFIGS / "sample.yaml", c)
+        t = DigitalTwinService(debug_mode=True)
         now = datetime.now(timezone.utc)
         for gate_id, queue, throughput in updates:
             try:
-                twin.update_gate_state(
-                    "sample", gate_id, queue, throughput, "test", "SYNTHETIC", now.isoformat(), conn, now=now
+                t.update_gate_state(
+                    "sample", gate_id, queue, throughput, "test", "SYNTHETIC", now.isoformat(), c, now=now
                 )
             except AssertionError as e:
                 if "Invariant violation" in str(e):
                     pytest.fail(f"Invariant broke on valid update: {e}")
                 raise
-        errors = twin.check_invariants("sample", conn)
+        errors = t.check_invariants("sample", c)
+        c.close()
         assert errors == [], f"Invariants broken: {errors}"
 
     prop_gate_invariants()
@@ -148,7 +164,7 @@ def test_snapshot_restore_snapshot_is_byte_identical(conn, twin):
     twin.restore_snapshot("sample", snapshot1_id, conn)
 
     # Second snapshot (should be identical to first)
-    snapshot2_id = twin.snapshot_now("sample", conn, timestamp="t=200")
+    twin.snapshot_now("sample", conn, timestamp="t=200")
     snapshot2 = twin.get_state_at_timestamp("sample", "t=200", conn)
     snapshot2_json = json.dumps(snapshot2["full_state"], sort_keys=True)
 

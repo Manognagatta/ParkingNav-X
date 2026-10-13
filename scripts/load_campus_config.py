@@ -1,4 +1,4 @@
-"""CLI: python scripts/load_campus_config.py --config configs/campuses/vitap.yaml [--db path]
+﻿"""CLI: python scripts/load_campus_config.py --config configs/campus/vitap.yaml [--db path]
 
 Idempotently loads (upserts) one campus YAML config into the database.
 Running it twice on the same file produces zero new rows.
@@ -11,7 +11,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from digital_twin.config_loader import load_campus_config
-from digital_twin.db import get_connection, apply_migrations
+from digital_twin.db import apply_migrations, get_connection
 from digital_twin.models import ConfigError
 
 

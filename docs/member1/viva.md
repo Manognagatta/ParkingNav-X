@@ -1,4 +1,4 @@
-# VIVA ANSWERS — Member 1 · Digital Twin + Simulation
+﻿# VIVA ANSWERS — Member 1 · Digital Twin + Simulation
 
 **Owner:** Jyothi Reddy Pula (23BCE7882)  
 **Module:** M1, M2, M4, M5, M13 (Campus Config, Digital Twin, Scenario Generator, Simulation Engine, Validation)  
@@ -137,7 +137,7 @@ During event window [start − skew, start + duration], arrivals to affected zon
 - **2.2 (fest)**: Large events like the annual fest. 2× is typical for campus festivals.
 - **1.5 (sports)**: Modest increase from spectators + athletes.
 
-All stored in `configs/campuses/vitap.yaml`, documented in `docs/member1/assumptions.md` with source.
+All stored in `configs/campus/vitap.yaml`, documented in `docs/member1/assumptions.md` with source.
 
 **Code:** `digital_twin/simulation/engine.py`, `_apply_event_multiplier()`.
 
@@ -152,8 +152,8 @@ All stored in `configs/campuses/vitap.yaml`, documented in `docs/member1/assumpt
 1. Vehicle arrives at assigned lot, finds occupancy = capacity.
 2. Enters **search/cruising** phase: drives to next-preferred lot (strategy-dependent).
 3. If that's also full, tries the next, adding travel + search time.
-4. If **all lots** are full and driver has tried all reachable ones → **REJECTED**, counted as overflow event, logged with reason "no_feasible_assignment".
-5. Overflow events are a primary metric (shows system is oversaturated).
+4. If **no feasible lot remains** (all full, or the remaining lots are unreachable because roads are closed) → **REJECTED_OVERFLOW**: the vehicle is counted as an overflow event and logged with a reason (`infeasible_at_route`, `no_feasible_lot_after_fill` or `unreachable_*`). A vehicle that finds its lot full but is successfully re-routed to another lot is **not** an overflow event; it increments that vehicle's `reassigned_count`.
+5. Overflow events (= rejected vehicles) are a primary metric: they show the system is oversaturated. Reassignments are tracked separately in `reassigned_count`.
 
 **Gate closes:**
 
@@ -229,7 +229,7 @@ No crashes, all state remains consistent, metrics honestly reported.
 **Where it's used:**
 
 - `digital_twin/simulation/engine.py`, `_assign_vehicle()`: each vehicle rolls a dice; if random() > compliance_rate, override with nearest-preferred.
-- `configs/campuses/vitap.yaml`: `compliance_rate: 0.85`.
+- `configs/campus/vitap.yaml`: `compliance_rate: 0.85`.
 
 **Test:** `test_part3_event_demand.py::test_compliance_behavior()` runs 1000 vehicles with compliance 0.85 and 0.5, shows that lower compliance increases search time (drivers taking non-optimal routes).
 
@@ -255,18 +255,19 @@ See `tests/test_scalability.py` for benchmarks.
 **Decision latency (decision cycle every 5 min):**
 
 At each 5-min mark (e.g., 08:05, 08:10, ...), the simulator:
-1. Builds `StateSnapshot` (lots, gates, roads, pending arrivals). ~1 ms.
-2. Calls `strategy.decide(state, forecast)` (Member 3's optimizer or B2 baseline). ~5–50 ms depending on strategy.
-3. Adapter wraps it with timeout (1000 ms) + fallback to B2.
-4. Feasibility check (O(n) vehicles, O(m) lots). ~5 ms.
+1. Builds a `StateSnapshot` of the twin (lots, gates, roads) and calls `strategy.update_policy(snapshot, forecast=None)`. The forecast is `None` until Member 2's predictor is wired in.
+2. Separately, for each vehicle served at the gate, calls `strategy.assign(vehicle, state)` (B1/B2 baselines now; Member 3's optimizer later).
+3. The adapter wraps every `assign()` with a 200 ms timeout + fallback to B2 (NearestAvailable).
+4. A feasibility guard rejects an assignment to a closed or full lot and falls back to B2.
 
-**Mean decision latency: 5–15 ms** (measured in `runs/{scenario}/{strategy}/decisions.jsonl`).
-**P95: 50 ms** (outliers when graph has many lots/roads).
-**Max: 200 ms** (worst case with full graph).
+**Measured `assign()` time per call:** B1 ≈ 0.001 ms, B2 ≈ 0.05 ms.
+**Timeout:** 200 ms per call; any slower call triggers the fallback.
+**Measured decision-cycle latency** (5-min twin snapshot + `update_policy`; E1; 10 s tick; from `decisions.jsonl`; 10 seeds x 120 cycles per strategy): 400 vehicles mean 1.3–1.5 ms, p95 3.0 ms, max 15–28 ms; 500 vehicles mean 1.0–1.8 ms, p95 3.5–7.1 ms; 1,000 vehicles mean ~2.5 ms, p95 9.4–10.3 ms, max ~23 ms. Whole-run wall time: ~2–2.8 s (400/500 veh), ~4 s (1,000 veh).
+**Not yet measured:** latency of Member 3's optimizer (Phase 3 benchmark).
 
-All well under the 1000 ms timeout, so fallback is rare.
+The baselines are far below the 200 ms timeout, so fallback is rare. When a strategy raises or times out, the engine logs `strategy X failed (reason) -- fell back to Nearest` and uses NearestAvailable.
 
-**Reported in:** `decisions.jsonl` per run, summarized in `metrics.json`.
+**Reported in:** `decisions.jsonl` per run (`tick`, `latency_ms` per 5-min cycle). It is not summarized in `metrics.json`.
 
 ---
 
@@ -276,14 +277,14 @@ All well under the 1000 ms timeout, so fallback is rare.
 
 **Generalisation via YAML:**
 
-A new campus (e.g., "IIT Bombay") is added as a YAML file: `configs/campuses/iit_bombay.yaml`. The loader:
+A new campus (e.g., "IIT Bombay") is added as a YAML file: `configs/campus/iit_bombay.yaml`. The loader:
 
 ```python
 from digital_twin.config_loader import load_campus_config
 from pathlib import Path
 
 conn = get_connection(':memory:')
-load_campus_config(Path('configs/campuses/iit_bombay.yaml'), conn)
+load_campus_config(Path('configs/campus/iit_bombay.yaml'), conn)
 ```
 
 **What the loader does:**
@@ -298,7 +299,7 @@ load_campus_config(Path('configs/campuses/iit_bombay.yaml'), conn)
 - The validator is generic (checks the schema, not hardcoded topology).
 - The shortest-path algorithm (Dijkstra) works on any graph.
 
-**Proof:** `test_part1_campus_config.py::test_generic_campus_load()` loads 3 different campuses (sample 1-gate, vitap 2-gate, synthetic_large 3-gate) and runs a simulation for each. Same code path. Just different configs.
+**Proof:** `test_part1_campus_config.py::test_generic_campus_load()` loads different campuses (sample 1-gate, vitap 2-gate) and runs a simulation for each. Same code path. Just different configs. Scalability is verified separately at 500 and 1000 vehicles using vitap.yaml (see `tests/test_scalability.py`).
 
 ---
 
@@ -338,17 +339,17 @@ E2 is the placement-drive scenario: 470 vehicles, E1 base profile with 1.8× dem
 
 | Metric | B1 (First Available) | B2 (Nearest Available) | Δ |
 |--------|----------------------|------------------------|---|
-| avg search time (min) | **5.07 ± 0.24** | **3.14 ± 0.12** | B2 saves 1.93 min/veh |
+| avg search time (min) | **3.21 ± 0.06** | **2.31 ± 0.02** | B2 saves 0.90 min/veh |
 | avg wait time (min) | **0.00** | **0.00** | identical — gate not a bottleneck |
-| gate queue avg/max | **0.001 / 1.0** | **0.001 / 1.0** | identical — strategy doesn't affect gate |
-| avg travel time (min) | **1.70 ± 0.01** | **1.15 ± 0.00** | B2 saves 0.55 min/veh |
-| avg travel distance (m) | **954 ± 4** | **648 ± 2** | B2 saves 306 m/veh |
-| overflow events | **13.5 ± 1.3** | **5.7 ± 0.9** | B1 saturates academic-main |
+| gate queue avg/max | **0.00 / 0.97** | **0.00 / 0.97** | identical — strategy doesn't affect gate |
+| avg travel time (min) | **1.71 ± 0.01** | **1.17 ± 0.00** | B2 saves 0.54 min/veh |
+| avg travel distance (m) | **952 ± 4** | **653 ± 2** | B2 saves 299 m/veh |
+| overflow events | **0.0 ± 0.0** | **0.0 ± 0.0** | = rejected; no vehicle was turned away |
 | rejected vehicles | **0.0** | **0.0** | cruising finds space (cap=472 > demand=470) |
 
-**Why rejected = 0:** vehicles that arrive at a full lot now cruise to the next feasible lot (overflow event logged). Rejection only occurs when no lot on campus has usable space (parking_full scenario: 600 veh > 472 cap → ~21 rejections per seed).
+**Why rejected = 0 (and overflow = 0):** vehicles that arrive at a full lot are re-routed to the next feasible lot and counted in `reassigned_count`, not as overflow. An overflow event is logged only when a vehicle is **rejected** — i.e. no lot on campus has usable space (or none is reachable). In E2 the lots never fill simultaneously (cap 472 > demand 470), so nothing is rejected. The parking_full scenario (600 veh > 472 cap) gives ~27.5 rejections = ~27.5 overflow events per seed for B1 (28.7 for B2).
 
-**Why B1 has higher distance:** B1 always routes to academic-main first (config order); it fills to 100%, forcing cruising. B2 routes to nearest lot from each gate, distributing load (overflow 100%, hostel 53%, admin-visitor 53%). B1 concentrates demand; B2 balances it.
+**Why B1 has higher distance:** B1 always routes to academic-main first (config order); it fills to 100%, forcing cruising. B2 routes to nearest lot from each gate, distributing load (mean peak occupancy over 30 seeds: overflow 100%, hostel 54%, admin-visitor 55%, academic-main 0%; B1: academic-main 100%, admin-visitor 55%, overflow 31%, hostel 9%). B1 concentrates demand; B2 balances it.
 
 ---
 
@@ -358,13 +359,13 @@ E2 is the placement-drive scenario: 470 vehicles, E1 base profile with 1.8× dem
 
 This is a non-obvious result worth knowing cold.
 
-B1 (FirstAvailable) fills lots in sorted ID order. Academic-main is first. On a normal day (E1), academic-main fills to ~100% by mid-morning, making late arrivals spend extra search time at near-full capacity (`search = base × (1 + α/(1−occ+ε))` diverges near occ=1). B1's search time is 6.65 min.
+B1 (FirstAvailable) fills lots in config order. Academic-main is first. On a normal day (E1), academic-main fills to its 108-space cap by mid-morning, making late arrivals spend extra search time at near-full capacity (`search = (0.5 + 5.5 × occ²)` min — it rises steeply but is bounded at 6 min when occ = 1). B1's search time is 3.93 min.
 
-In E3 (academic-main closed ticks 60–180), B1 diverts those vehicles to hostel (162 spaces), admin (72), and sports (84). These lots start the day nearly empty. Lower occupancy = shorter search time per the formula. The 120 min closure window coincides with the morning peak — exactly when academic-main would have been most congested. The net result: **average search time drops to 3.86 min**, because the forced redistribution prevents the high-occupancy penalty.
+In E3 (academic-main closed ticks 60–180), B1 diverts those vehicles to hostel (162 spaces), admin (72), and sports (84). These lots start the day nearly empty. Lower occupancy = shorter search time per the formula. The 120 min closure window coincides with the morning peak — exactly when academic-main would have been most congested. The net result: **average search time drops to 2.83 min**, because the forced redistribution prevents the high-occupancy penalty.
 
-**What this exposes:** B1 is not a good strategy. Its search-time degrades sharply as occupancy rises. Any strategy that fills one lot to 100% before touching others will produce high search times late in the day. B2 (NearestAvailable) avoids this by balancing across lots; its search time is unaffected by the closure (3.20 min in both E1 and E3) because it never relied on academic-main.
+**What this exposes:** B1 is not a good strategy. Its search time grows with occupancy (quadratically in `occ`). Any strategy that fills one lot to 100% before touching others will produce high search times late in the day. B2 (NearestAvailable) avoids this by balancing across lots; its search time is unaffected by the closure (2.26 min in E1, 2.26 min in E3) because it never relied on academic-main.
 
-**Why E3 B2 = E1 B2 (search 3.20 min both):**
+**Why E3 B2 ≈ E1 B2 (search 2.26 vs 2.26 min):**
 B2 assigns each vehicle to the nearest open lot from its entry gate. From gate-main, the nearest is hostel (76 s), not academic-main (90 s). From gate-visitor, the nearest is overflow (56 s). B2 is already routing around academic-main even before the closure — so closing it changes nothing for B2.
 
 ---
@@ -381,7 +382,7 @@ Not a bug — it is physically correct.
 
 In E4, gate-main closes ticks 45–105. All 400 E1-profile vehicles divert to visitor gate. The E1 arrival profile peaks at **1.2 veh/min** total, which divides to at most **1.2 veh/min at visitor gate** after diversion. Service capacity is 3 veh/min. Since 1.2 < 3, every arriving vehicle is admitted immediately — queue depth stays 0.
 
-**gate_congestion.yaml is different:** It uses a 4.0 veh/min burst (ticks 30–90). Vehicles split across both gates (~2 veh/min each). Both gates have enough capacity, so again queue = 0. The 74.5 overflow events in gate_congestion are **parking lot overflow** (lots fill fast under burst demand), not gate queue overflow.
+**gate_congestion.yaml (scenario since removed from the repo) was different:** it used a 4.0 veh/min burst (ticks 30–90). Vehicles split across both gates (~2 veh/min each). Both gates had enough capacity, so again queue = 0. Its overflow events were parking-lot pressure, not gate queue overflow.
 
 **When does a queue actually form?** Arrival rate must exceed gate service rate. Test `test_gate_queue_grows_under_overload` confirms this: with gate capacity=1 veh/min and burst rate=6 veh/min, the queue grows by tick 5. The logic is correct; VITAP's gates are simply not a bottleneck under the modelled demand.
 

@@ -5,7 +5,7 @@ Every scenario is SYNTHETIC by construction; none is presented as real
 campus behavior.
 """
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
@@ -34,6 +34,14 @@ class ScenarioConfig:
     proactive: bool = True              # Use proactive routing (vs. reactive)
     # Warm-down: no new arrivals in the last N minutes so vehicles can exit before recording ends
     warmdown_minutes: int = 0
+    # Simulation tick length in seconds (spec default 10 s). Scenario times stay in minutes; the engine
+    # converts. Must divide 60 evenly. Output ticks (vehicle logs, timesteps) are still reported in minutes.
+    time_step_sec: int = 10
+    # Gate server model: "tick" (default, capacity x dt credit) or "simpy" (optional multi-lane SimPy servers).
+    gate_model: str = "tick"
+    # Optional vehicle mix with per-type dwell: {type: {share, dwell_median_minutes, dwell_sigma}}.
+    # None -> one global lognormal dwell for every vehicle (default behaviour).
+    vehicle_types: Optional[dict] = None
 
 
 class ScenarioLoader:
@@ -70,6 +78,9 @@ class ScenarioLoader:
             use_uncertainty=raw.get("use_uncertainty", True),
             proactive=raw.get("proactive", True),
             warmdown_minutes=raw.get("warmdown_minutes", 0),
+            time_step_sec=raw.get("time_step_sec", 10),
+            gate_model=raw.get("gate_model", "tick"),
+            vehicle_types=raw.get("vehicle_types"),
         )
 
 
@@ -87,6 +98,21 @@ class ScenarioValidator:
 
         if scenario.vehicle_count < 0:
             errors.append("vehicle_count must be non-negative.")
+        if scenario.gate_model not in ("tick", "simpy"):
+            errors.append(f"gate_model must be 'tick' or 'simpy'; got '{scenario.gate_model}'.")
+        if scenario.vehicle_types is not None:
+            if not isinstance(scenario.vehicle_types, dict) or not scenario.vehicle_types:
+                errors.append("vehicle_types must be a non-empty mapping of type -> {share, dwell_median_minutes, dwell_sigma}.")
+            else:
+                for tname, spec in scenario.vehicle_types.items():
+                    if not isinstance(spec, dict) or spec.get("share", 0) <= 0:
+                        errors.append(f"vehicle_types['{tname}'].share must be > 0.")
+                    elif spec.get("dwell_median_minutes", 0) <= 0:
+                        errors.append(f"vehicle_types['{tname}'].dwell_median_minutes must be > 0.")
+                    elif spec.get("dwell_sigma", 0.6) <= 0:
+                        errors.append(f"vehicle_types['{tname}'].dwell_sigma must be > 0.")
+        if not (1 <= scenario.time_step_sec <= 60) or 60 % scenario.time_step_sec != 0:
+            errors.append(f"time_step_sec must be between 1 and 60 and divide 60 evenly; got {scenario.time_step_sec}.")
 
         overrides = scenario.availability_overrides or {}
 

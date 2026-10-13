@@ -1,15 +1,17 @@
-"""
+﻿"""
 Scalability Tests: 500 and 1,000 vehicles
 """
 
-import pytest
 import time
 from pathlib import Path
+
+import pytest
+
 from digital_twin.config_loader import load_campus_config
+from digital_twin.db import apply_migrations, get_connection
 from digital_twin.simulation.engine import SimulationEngine
 from digital_twin.simulation.scenario import ScenarioLoader
-from digital_twin.simulation.strategy import FirstAvailableStrategy, NearestAvailableStrategy
-from digital_twin.db import get_connection, apply_migrations
+from digital_twin.simulation.strategy import FirstAvailableStrategy
 
 
 class TestScalability:
@@ -20,8 +22,8 @@ class TestScalability:
         """Setup: campus + connection."""
         conn = get_connection(':memory:')
         apply_migrations(conn)
-        load_campus_config(Path('configs/campuses/synthetic_large.yaml'), conn)
-        load_campus_config(Path('configs/campuses/vitap.yaml'), conn)
+        load_campus_config(Path('configs/campus/vitap.yaml'), conn)
+        load_campus_config(Path('configs/campus/vitap.yaml'), conn)
         return conn
 
     def test_500_vehicles_determinism(self, setup):
@@ -127,7 +129,10 @@ class TestScalability:
         assert result.metrics.get('overflow_events', 0) >= 0
 
     def test_scalability_latency_measurement(self, setup):
-        """Verify decision latency is measured at all scales."""
+        """Decision-cycle latency is recorded at every scale and stays under the 200 ms strategy timeout.
+
+        Measured baseline (E1, 400 veh, 30 seeds): mean ~0.8 ms, p95 ~2.5 ms, max ~16 ms.
+        """
         conn = setup
 
         for vehicle_count in [100, 500, 1000]:
@@ -137,9 +142,11 @@ class TestScalability:
             engine = SimulationEngine()
             result = engine.run(scenario, FirstAvailableStrategy(), conn)
 
-            # Decision latency should be logged
-            assert hasattr(result, 'decision_latencies') or result.metrics.get('avg_search_time_min') >= 0
             assert len(result.vehicles) == vehicle_count
+            lat = sorted(d['latency_ms'] for d in result.decision_latencies)
+            assert len(lat) > 0, "No decision latencies recorded"
+            p95 = lat[int(0.95 * len(lat))]
+            assert p95 < 200, f"{vehicle_count} veh: p95 decision latency {p95} ms >= 200 ms"
 
 
 if __name__ == "__main__":

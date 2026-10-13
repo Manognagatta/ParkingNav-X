@@ -11,16 +11,21 @@ AllocationStrategy exactly once per vehicle at the parking_search step, then
 enforces Part 1's real constraints itself (closed/full lot, closed/blocked
 road, gate throughput) regardless of what the strategy returned.
 
+Time model: the loop runs in engine ticks of scenario.time_step_sec (default 10 s).
+Scenario times (YAML) and logged ticks/timesteps are in MINUTES; see the conversion at
+the top of the loop.
+
 Simplification, documented rather than hidden: road_load is attributed to a
-vehicle's route once, at the tick its transit begins, not re-added on every
-subsequent tick of a multi-minute transit. This keeps the per-timestep
+vehicle's route once, at the moment its transit begins (and counted per simulated
+minute for BPR), not re-added on every subsequent tick of a multi-minute transit. This keeps the per-timestep
 road_load metric transparent and deterministic; a finer-grained "vehicle is
 occupying this edge for N ticks" model is a drop-in replacement later.
 """
 
 import json
+import logging
+import math
 import random
-import signal
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -28,17 +33,23 @@ from typing import Optional
 
 import networkx as nx
 
-from digital_twin.simulation.metrics_recorder import MetricsRecorder
-
 from digital_twin.graph_service import CampusGraphService
+from digital_twin.simulation.metrics_recorder import MetricsRecorder
 from digital_twin.simulation.scenario import ScenarioConfig, ScenarioValidator
-from digital_twin.simulation.strategy import AllocationStrategy, AssignmentResult, CampusState, Vehicle, NearestAvailableStrategy
+from digital_twin.simulation.strategy import (
+    AllocationStrategy,
+    AssignmentResult,
+    CampusState,
+    NearestAvailableStrategy,
+    Vehicle,
+)
 from digital_twin.twin_service import DigitalTwinService
 
 DWELL_MINUTES_RANGE = (30, 480)
 DWELL_LOGNORMAL_MU = 4.8   # ln(120) ≈ 4.79 → median ~120 min (realistic work/class session)
 DWELL_LOGNORMAL_SIGMA = 0.6
-STRATEGY_TIMEOUT_MS = 1000  # 1 second timeout for strategy.assign()
+logger = logging.getLogger(__name__)
+STRATEGY_TIMEOUT_MS = 200  # 200ms timeout per spec (B1=0.001ms, B2=0.05ms typical)
 
 BPR_ALPHA = 0.15
 BPR_BETA = 4
@@ -64,9 +75,12 @@ class _RunningVehicle:
     queue_enter_tick: Optional[int] = None
     gate_admitted_tick: Optional[int] = None
     search_start_tick: Optional[int] = None
-    search_end_tick: Optional[int] = None
+    lot_arrival_tick: Optional[int] = None   # tick the vehicle reached its lot (SEARCHING starts)
+    search_end_tick: Optional[int] = None    # tick the search finished and the vehicle PARKED
     assigned_lot_id: Optional[str] = None
     dwell_minutes: int = 0
+    dwell_mu: float = DWELL_LOGNORMAL_MU        # lognormal mu for this vehicle (event-overridable)
+    dwell_sigma: float = DWELL_LOGNORMAL_SIGMA
     remaining_transit_minutes: float = 0.0
     outbound_route_computed: bool = False
     outbound_distance_meters: float = 0.0
@@ -74,6 +88,9 @@ class _RunningVehicle:
     completion_tick: Optional[int] = None
     outbound_transit_seconds: float = 0.0  # Fix 1: BPR gate→lot travel time only
     occupancy_search_seconds: float = 0.0  # Fix 2: occupancy-based search time at assignment
+    reassigned_count: int = 0             # incremented each time lot fills during transit → reroute
+    arrival_engine_tick: int = 0          # arrival in engine ticks (arrival_tick on Vehicle is in minutes)
+    departure_tick: Optional[int] = None  # engine tick at which the vehicle left its lot
 
 
 @dataclass
@@ -88,6 +105,11 @@ class SimulationResult:
     overflow_events: list = field(default_factory=list)
     infeasibility_rejections: int = 0                # count of assignments rejected due to infeasibility
     adapter_fallbacks: int = 0                       # count of fallbacks to B2 due to timeout/exception
+    decision_latencies: list = field(default_factory=list)  # [{tick, latency_ms}] per 5-min decision cycle
+    time_step_sec: int = 10                          # engine tick length used for this run
+    config_hash: str = ""                            # SHA-256 of scenario YAML (for reproducibility)
+    git_sha: str = ""                                # HEAD commit SHA at run time
+    runtime_sec: float = 0.0                         # wall-clock seconds for this run
 
     @property
     def metrics(self) -> dict:
@@ -103,19 +125,101 @@ class SimulationResult:
             }
         search_times = [v.get("search_time_seconds", 0) / 60.0 for v in self.vehicles]
         wait_times = [v.get("waiting_time_seconds", 0) / 60.0 for v in self.vehicles]
+        travel_times = [v.get("travel_time_seconds", 0) / 60.0 for v in self.vehicles]
+        travel_distances = [v.get("travel_distance_meters", 0) for v in self.vehicles]
         avg_wait = sum(wait_times) / len(wait_times)
+        _parked   = sum(1 for v in self.vehicles if v.get("final_state") == "parked")
+        _exited   = sum(1 for v in self.vehicles if v.get("final_state") == "exited")
+        _rejected = sum(1 for v in self.vehicles if v.get("final_state") == "rejected")
+        _in_sys   = sum(1 for v in self.vehicles if v.get("final_state") == "in_system")
+        _total    = len(self.vehicles)
+        _total_reassignments = sum(v.get("reassigned_count", 0) for v in self.vehicles)
+        # avg/max gate queue DEPTH (vehicles) computed from per-tick timestep data
+        gate_keys = [k for k in (self.timesteps[0] if self.timesteps else {}) if k.startswith("gate_queue_")]
+        if gate_keys and self.timesteps:
+            total_queue_per_tick = [sum(ts.get(k, 0) for k in gate_keys) for ts in self.timesteps]
+            _avg_gq = sum(total_queue_per_tick) / len(total_queue_per_tick)
+            _max_gq = max(total_queue_per_tick)
+        else:
+            _avg_gq = 0.0
+            _max_gq = 0.0
         return {
+            # ── 5 primary metrics (spec) ──────────────────────────────────────
             "avg_search_time_min": sum(search_times) / len(search_times),
             "avg_wait_time_min": avg_wait,
-            "max_search_time_min": max(search_times),
-            "avg_gate_queue": avg_wait,
-            "max_gate_queue": max(wait_times),
+            "avg_gate_queue": _avg_gq,          # avg queue DEPTH (vehicles), not wait time
+            "max_gate_queue": _max_gq,          # max queue DEPTH (vehicles) at any tick
             "overflow_events_count": len(self.overflow_events),
-            "total_vehicles": len(self.vehicles),
-            "completed_vehicles": sum(1 for v in self.vehicles if v.get("final_state") == "exited"),
-            "parked_vehicles": sum(1 for v in self.vehicles if v.get("final_state") == "parked"),
+            "avg_travel_time_min": sum(travel_times) / len(travel_times),
+            "total_travel_distance_m": sum(travel_distances),
+            # ── supporting ───────────────────────────────────────────────────
+            "max_search_time_min": max(search_times),
+            "total_vehicles": _total,
+            "completed_vehicles": _exited,
+            "parked_vehicles": _parked,
+            "total_reassignments": _total_reassignments,
             "infeasibility_rejections": self.infeasibility_rejections,
             "adapter_fallbacks": self.adapter_fallbacks,
+        }
+
+    @property
+    def secondary_metrics(self) -> dict:
+        """Conservation breakdown + success rate — separate from primary metrics
+        so iteration over metrics never hits a nested dict."""
+        if not self.vehicles:
+            return {"total_vehicles_simulated": 0, "parked": 0, "exited": 0,
+                    "in_system": 0, "rejected": 0, "allocation_success_rate": 0.0,
+                    "conservation_check": True,
+                    "in_system_breakdown": {"queued": 0, "driving": 0, "searching": 0, "departing": 0}}
+        _parked   = sum(1 for v in self.vehicles if v.get("final_state") == "parked")
+        _exited   = sum(1 for v in self.vehicles if v.get("final_state") == "exited")
+        _rejected = sum(1 for v in self.vehicles if v.get("final_state") == "rejected")
+        _in_sys   = sum(1 for v in self.vehicles if v.get("final_state") == "in_system")
+        _total    = len(self.vehicles)
+        # Utilisation across lots: derive peak occupancy_pct per lot from timestep data
+        lot_occ_keys = [k for k in (self.timesteps[0] if self.timesteps else {}) if k.startswith("parking_occupancy_")]
+        lot_cap_keys = [k for k in (self.timesteps[0] if self.timesteps else {}) if k.startswith("parking_capacity_")]
+        if lot_occ_keys and self.timesteps:
+            # avg utilisation = mean over lots of (mean occupancy_pct across ticks)
+            util_by_lot = []
+            for ok in lot_occ_keys:
+                lot_id = ok.replace("parking_occupancy_", "")
+                ck = f"parking_capacity_{lot_id}"
+                # capacity is constant per lot; take max across ticks (or first non-zero)
+                cap_val = max((ts.get(ck, 0) for ts in self.timesteps), default=0) or 1
+                occ_vals = [ts.get(ok, 0) for ts in self.timesteps]
+                pct_vals = [min(o / cap_val * 100.0, 100.0) for o in occ_vals]
+                util_by_lot.append(sum(pct_vals) / len(pct_vals))
+            _avg_util = sum(util_by_lot) / len(util_by_lot) if util_by_lot else 0.0
+            # utilisation imbalance = std-dev of per-lot mean utilisation
+            mean_u = _avg_util
+            _util_imbalance = (sum((u - mean_u) ** 2 for u in util_by_lot) / len(util_by_lot)) ** 0.5 if util_by_lot else 0.0
+        else:
+            _avg_util = 0.0
+            _util_imbalance = 0.0
+        # Per-decision latency
+        _avg_latency_ms = (
+            sum(d.get("latency_ms", 0) for d in self.decision_latencies) / len(self.decision_latencies)
+            if self.decision_latencies else 0.0
+        )
+        return {
+            "total_vehicles_simulated": _total,
+            "parked": _parked,
+            "exited": _exited,
+            "in_system": _in_sys,
+            "rejected": _rejected,
+            "allocation_success_rate": round((_parked + _exited) / _total, 4) if _total else 0.0,
+            "conservation_check": _total == (_parked + _exited + _in_sys + _rejected),
+            "avg_utilization_pct": round(_avg_util, 2),
+            "utilization_imbalance": round(_util_imbalance, 2),
+            "simulation_runtime_sec": self.runtime_sec,
+            "avg_decision_latency_ms": round(_avg_latency_ms, 3),
+            "in_system_breakdown": {
+                "queued": sum(1 for v in self.vehicles if v.get("internal_state") in ("arrival", "gate_queue")),
+                "driving": sum(1 for v in self.vehicles if v.get("internal_state") in ("campus_entry", "route", "parking_search")),
+                "searching": sum(1 for v in self.vehicles if v.get("internal_state") == "searching"),
+                "departing": sum(1 for v in self.vehicles if v.get("internal_state") == "departure"),
+            },
         }
 
 
@@ -152,9 +256,11 @@ def _arrival_rate_at(profile: dict, t: int) -> float:
 
 class SimulationEngine:
     def __init__(self, graph_service: Optional[CampusGraphService] = None,
-                 twin_service: Optional[DigitalTwinService] = None):
+                 twin_service: Optional[DigitalTwinService] = None,
+                 runs_dir: Optional[str] = None):
         self.graph_service = graph_service or CampusGraphService()
         self.twin_service = twin_service or DigitalTwinService()
+        self.runs_dir = runs_dir  # None → uses MetricsRecorder default ("runs")
 
     def run(self, scenario: ScenarioConfig, strategy: AllocationStrategy, conn,
             run_id: Optional[str] = None) -> SimulationResult:
@@ -163,11 +269,29 @@ class SimulationEngine:
         if errors:
             raise ValueError(f"Scenario '{scenario.scenario_id}' validation failed:\n" + "\n".join(errors))
 
+        import hashlib
+        import subprocess
+        import time as _time
+
+        _run_start = _time.monotonic()
+
+        # config_hash: SHA-256 of the scenario dict (deterministic, order-stable)
+        _scenario_bytes = json.dumps(scenario.__dict__, sort_keys=True, default=str).encode()
+        _config_hash = hashlib.sha256(_scenario_bytes).hexdigest()[:16]
+
+        # git_sha: HEAD commit at run time (best-effort; empty string on failure)
+        try:
+            _git_sha = subprocess.check_output(
+                ["git", "rev-parse", "--short", "HEAD"], stderr=subprocess.DEVNULL, text=True
+            ).strip()
+        except Exception:
+            _git_sha = ""
+
         rng = random.Random(scenario.random_seed)  # the ONE seeded RNG for this entire run
 
         run_id = run_id or f"{scenario.scenario_id}-{uuid.uuid4().hex[:8]}"
         started_at = datetime.now(timezone.utc).isoformat()
-        strategy_name = f"{strategy.__class__.__module__}.{strategy.__class__.__name__}"
+        strategy_name = getattr(strategy, "label", strategy.__class__.__name__)
 
         conn.execute(
             """INSERT INTO simulation_runs (run_id, campus_id, scenario_id, random_seed, strategy_name,
@@ -192,6 +316,10 @@ class SimulationEngine:
 
         running_vehicles = self._generate_arrivals(scenario, rng, open_gate_ids, destinations)
         gate_queues = {g: [] for g in gates}  # FIFO lists of vehicle_ids
+        gate_sim = None
+        if scenario.gate_model == "simpy":
+            from digital_twin.simulation.gate_simpy import SimpyGates  # optional dependency
+            gate_sim = SimpyGates({g: d["capacity"] for g, d in gates.items()})
         by_id = {rv.vehicle.vehicle_id: rv for rv in running_vehicles}
 
         timesteps_metrics = []
@@ -201,10 +329,26 @@ class SimulationEngine:
         infeasibility_rejections = 0  # count of assignments rejected as infeasible
         adapter_fallbacks = 0  # count of fallbacks to B2
 
-        timed_closures = (scenario.availability_overrides or {}).get("timed_closures", [])
+        # Time model: engine ticks are time_step_sec long (spec default 10 s). Scenario times (YAML) are in
+        # minutes and logged ticks stay in minutes; only the internal loop runs at the finer step.
+        dt = scenario.time_step_sec
+        tpm = 60 // dt            # engine ticks per minute
+        step_min = dt / 60.0      # minutes advanced per engine tick
+        gate_credit = {g: 0.0 for g in gates}   # fractional vehicles a gate may still serve (rate x dt)
+        gate_throughput = {g: 0 for g in gates}  # vehicles served this minute (reset each minute boundary)
 
-        for tick in range(scenario.duration_minutes):
-            # Apply/remove timed closures at their start/end ticks
+        def _to_ticks(minutes):
+            return None if minutes is None else minutes * tpm
+
+        timed_closures = [
+            {**tc, "start_tick": _to_ticks(tc.get("start_tick")), "end_tick": _to_ticks(tc.get("end_tick"))}
+            for tc in (scenario.availability_overrides or {}).get("timed_closures", [])
+        ]
+
+        for tick in range(scenario.duration_minutes * tpm):
+            minute = tick // tpm
+            minute_end = (tick + 1) % tpm == 0
+            # Apply/remove timed closures at their start/end (already converted from minutes to engine ticks)
             for tc in timed_closures:
                 etype = tc.get("entity_type")
                 eid = tc.get("entity_id")
@@ -218,7 +362,10 @@ class SimulationEngine:
                         if eid in open_gate_ids:
                             open_gate_ids.remove(eid)
                         # Drain queued vehicles at the closing gate to nearest open gate
-                        if gate_queues.get(eid) and open_gate_ids:
+                        if gate_sim is not None:
+                            if gate_sim.queue_length(eid) and open_gate_ids:
+                                gate_sim.close_gate(eid, sorted(open_gate_ids)[0])
+                        elif gate_queues.get(eid) and open_gate_ids:
                             alt = sorted(open_gate_ids)[0]
                             gate_queues[alt].extend(gate_queues[eid])
                             gate_queues[eid] = []
@@ -244,37 +391,51 @@ class SimulationEngine:
                                 working_graph.add_edge(u, v, **d)
 
             # Decision cycle: every 5 minutes, call strategy.update_policy()
-            if tick % 5 == 0:
+            if tick % (5 * tpm) == 0:
                 decision_start = datetime.now(timezone.utc)
                 state_snapshot = self.twin_service.get_current_state(scenario.campus_id, conn, now=decision_start)
                 strategy.update_policy(state_snapshot, forecast=None)  # No forecast yet (Member 2's job)
                 decision_latency_ms = (datetime.now(timezone.utc) - decision_start).total_seconds() * 1000
-                decision_latencies.append({"tick": tick, "latency_ms": round(decision_latency_ms, 2)})
+                decision_latencies.append({"tick": minute, "latency_ms": round(decision_latency_ms, 2)})
             for rv in running_vehicles:
-                if rv.vehicle.arrival_tick == tick and rv.state == "arrival":
+                if rv.arrival_engine_tick == tick and rv.state == "arrival":
                     if rv.vehicle.entry_gate in open_gate_ids:
                         rv.state = "gate_queue"
                         rv.queue_enter_tick = tick
-                        gate_queues[rv.vehicle.entry_gate].append(rv.vehicle.vehicle_id)
+                        if gate_sim is not None:
+                            gate_sim.join(rv.vehicle.entry_gate, rv.vehicle.vehicle_id)
+                        else:
+                            gate_queues[rv.vehicle.entry_gate].append(rv.vehicle.vehicle_id)
                     elif open_gate_ids:
                         # Gate closed (timed or static): divert to nearest open gate
                         rv.vehicle.entry_gate = sorted(open_gate_ids)[0]
                         rv.state = "gate_queue"
                         rv.queue_enter_tick = tick
-                        gate_queues[rv.vehicle.entry_gate].append(rv.vehicle.vehicle_id)
+                        if gate_sim is not None:
+                            gate_sim.join(rv.vehicle.entry_gate, rv.vehicle.vehicle_id)
+                        else:
+                            gate_queues[rv.vehicle.entry_gate].append(rv.vehicle.vehicle_id)
                     else:
                         rv.state = "completed"  # no gate at all: never enters
 
-            for gate_id in open_gate_ids:
-                throughput = gates[gate_id]["capacity"]
-                admitted = 0
+            if gate_sim is not None:
+                for vehicle_id in gate_sim.advance((tick + 1) * dt):
+                    rv = by_id[vehicle_id]
+                    rv.state = "campus_entry"
+                    rv.gate_admitted_tick = tick
+                    gate_throughput[rv.vehicle.entry_gate] += 1
+            for gate_id in ([] if gate_sim is not None else open_gate_ids):
+                # service_rate (veh/min) x dt: fractional credit accumulates, at most one tick's worth (min 1)
+                rate_per_tick = gates[gate_id]["capacity"] * step_min
+                gate_credit[gate_id] = min(gate_credit[gate_id] + rate_per_tick, max(1.0, rate_per_tick))
                 queue = gate_queues[gate_id]
-                while queue and admitted < throughput:
+                while queue and gate_credit[gate_id] >= 1.0 - 1e-9:
                     vehicle_id = queue.pop(0)  # FIFO
                     rv = by_id[vehicle_id]
                     rv.state = "campus_entry"
                     rv.gate_admitted_tick = tick
-                    admitted += 1
+                    gate_credit[gate_id] -= 1.0
+                    gate_throughput[gate_id] += 1
 
             for rv in running_vehicles:
                 if rv.state == "campus_entry":
@@ -294,6 +455,8 @@ class SimulationEngine:
                         )
                         if fallback_reason:
                             adapter_fallbacks += 1
+                            logger.warning("tick=%d vehicle=%s: strategy %s failed (%s) -- fell back to Nearest",
+                                           minute, rv.vehicle.vehicle_id, strategy.__class__.__name__, fallback_reason)
                     else:
                         nearest = self._nearest_available_lot(
                             rv.vehicle.entry_gate, open_lot_ids, parking_lots, working_graph
@@ -308,13 +471,15 @@ class SimulationEngine:
                     if not feasible:
                         infeasibility_rejections += 1
                         rv.state = "rejected"
-                        overflow_events.append({"tick": tick, "parking_lot_id": result.parking_lot_id if result else None, "reason": "infeasible_at_route"})
+                        overflow_events.append({"tick": minute, "parking_lot_id": result.parking_lot_id if result else None, "reason": "infeasible_at_route"})
                         continue
 
                     # Route from gate to the strategy-assigned lot
                     assigned_lot = result.parking_lot_id
                     if not nx.has_path(working_graph, rv.vehicle.entry_gate, assigned_lot):
+                        infeasibility_rejections += 1
                         rv.state = "rejected"
+                        overflow_events.append({"tick": minute, "parking_lot_id": assigned_lot, "reason": "unreachable_at_route"})
                         continue
                     path = nx.shortest_path(working_graph, rv.vehicle.entry_gate, assigned_lot, weight="weight_time_seconds")
                     travel_time = 0.0
@@ -329,7 +494,7 @@ class SimulationEngine:
                         flow = road_load.get(road_id, 0)
                         travel_time += bpr_travel_time(t_free, flow, cap)
                         distance += edge.get("weight_distance_meters", 0.0)
-                    rv.remaining_transit_minutes = max(1.0, travel_time / 60.0)
+                    rv.remaining_transit_minutes = max(step_min, travel_time / 60.0)
                     rv.outbound_distance_meters = distance
                     rv.outbound_transit_seconds = travel_time  # Fix 1: gate→assigned-lot BPR time
                     rv.assigned_lot_id = assigned_lot
@@ -338,8 +503,8 @@ class SimulationEngine:
 
                 elif rv.state == "parking_search":
                     # Transit countdown; park when elapsed
-                    rv.remaining_transit_minutes -= 1
-                    if rv.remaining_transit_minutes > 0:
+                    rv.remaining_transit_minutes -= step_min
+                    if rv.remaining_transit_minutes > 1e-9:
                         continue
 
                     # Re-check feasibility: lot may have filled during transit
@@ -353,7 +518,6 @@ class SimulationEngine:
                         # Count overflow; cruise to next feasible lot.
                         # Reject ONLY if no lot on campus has usable space.
                         failed_lot = rv.assigned_lot_id
-                        overflow_events.append({"tick": tick, "parking_lot_id": failed_lot, "reason": "filled_during_transit"})
 
                         state_view = CampusState(
                             campus_id=scenario.campus_id, graph=working_graph,
@@ -377,13 +541,16 @@ class SimulationEngine:
                             # No usable space on campus → true rejection
                             infeasibility_rejections += 1
                             rv.state = "rejected"
+                            overflow_events.append({"tick": minute, "parking_lot_id": failed_lot, "reason": "no_feasible_lot_after_fill"})
                             continue
 
                         # Re-route from failed lot to new lot (cruising adds time and distance)
+                        rv.reassigned_count += 1
                         from_node = failed_lot if failed_lot in working_graph else rv.vehicle.entry_gate
                         if not nx.has_path(working_graph, from_node, new_lot_id):
                             infeasibility_rejections += 1
                             rv.state = "rejected"
+                            overflow_events.append({"tick": minute, "parking_lot_id": new_lot_id, "reason": "unreachable_after_fill"})
                             continue
 
                         path = nx.shortest_path(working_graph, from_node, new_lot_id, weight="weight_time_seconds")
@@ -402,30 +569,37 @@ class SimulationEngine:
 
                         rv.outbound_transit_seconds += extra_time
                         rv.outbound_distance_meters += extra_dist
-                        rv.remaining_transit_minutes = max(1.0, extra_time / 60.0)
+                        rv.remaining_transit_minutes = max(step_min, extra_time / 60.0)
                         rv.assigned_lot_id = new_lot_id
                         # stay in parking_search — re-enters transit countdown next tick
                         continue
 
-                    rv.search_end_tick = tick
-
-                    # Fix 2: occupancy-based search time at moment of parking
+                    # Reached the lot: reserve a space now (capacity can never be exceeded) and spend the
+                    # spec search time SEARCHING before parking: base + k*occ^2 (base 0.5 min, k 5.5 min).
+                    rv.lot_arrival_tick = tick
                     occ = lot["occupied_spaces"] / max(1, lot["usable_capacity"])
-                    rv.occupancy_search_seconds = 0.5 * 60 * (1 + occ / max(0.001, 1.0 - occ))
+                    rv.occupancy_search_seconds = (0.5 + 5.5 * occ ** 2) * 60
                     lot["occupied_spaces"] += 1
-                    raw = rng.gauss(DWELL_LOGNORMAL_MU, DWELL_LOGNORMAL_SIGMA)
-                    rv.dwell_minutes = min(max(int(DWELL_MINUTES_RANGE[0]), int(2.718281828 ** raw)), DWELL_MINUTES_RANGE[1])
-                    rv.remaining_transit_minutes = rv.dwell_minutes
-                    rv.state = "parked"
+                    rv.remaining_transit_minutes = rv.occupancy_search_seconds / 60.0
+                    rv.state = "searching"
                     self.twin_service.update_parking_state(
                         scenario.campus_id, rv.assigned_lot_id, lot["occupied_spaces"],
                         "simulation", "SYNTHETIC", datetime.now(timezone.utc).isoformat(), conn,
                         commit=False,
                     )
 
+                elif rv.state == "searching":
+                    rv.remaining_transit_minutes -= step_min
+                    if rv.remaining_transit_minutes <= 1e-9:
+                        rv.search_end_tick = tick
+                        raw = rng.gauss(rv.dwell_mu, rv.dwell_sigma)
+                        rv.dwell_minutes = min(max(int(DWELL_MINUTES_RANGE[0]), int(2.718281828 ** raw)), DWELL_MINUTES_RANGE[1])
+                        rv.remaining_transit_minutes = rv.dwell_minutes
+                        rv.state = "parked"
+
                 elif rv.state == "parked":
-                    rv.remaining_transit_minutes -= 1
-                    if rv.remaining_transit_minutes <= 0:
+                    rv.remaining_transit_minutes -= step_min
+                    if rv.remaining_transit_minutes <= 1e-9:
                         lot = parking_lots[rv.assigned_lot_id]
                         # Part 5's one intentional clamp: internal consistency guard only.
                         lot["occupied_spaces"] = max(0, lot["occupied_spaces"] - 1)
@@ -438,55 +612,59 @@ class SimulationEngine:
                             distance = nx.shortest_path_length(working_graph, rv.assigned_lot_id, rv.vehicle.entry_gate, weight="weight_distance_meters")
                             travel_time = nx.shortest_path_length(working_graph, rv.assigned_lot_id, rv.vehicle.entry_gate, weight="weight_time_seconds")
                             rv.inbound_distance_meters = distance
-                            rv.remaining_transit_minutes = max(1.0, travel_time / 60.0)
+                            rv.remaining_transit_minutes = max(step_min, travel_time / 60.0)
                         else:
-                            rv.remaining_transit_minutes = 1.0
+                            rv.remaining_transit_minutes = step_min
                         rv.state = "departure"
+                        rv.departure_tick = tick
 
                 elif rv.state == "departure":
-                    rv.remaining_transit_minutes -= 1
-                    if rv.remaining_transit_minutes <= 0:
+                    rv.remaining_transit_minutes -= step_min
+                    if rv.remaining_transit_minutes <= 1e-9:
                         rv.state = "completed"
                         rv.completion_tick = tick
 
             for gate_id, queue in gate_queues.items():
-                gates[gate_id]["queue_length"] = len(queue)
+                gates[gate_id]["queue_length"] = gate_sim.queue_length(gate_id) if gate_sim is not None else len(queue)
 
-            now_iso = datetime.now(timezone.utc).isoformat()
-            for gate_id, gate in gates.items():
-                self.twin_service.update_gate_state(
-                    scenario.campus_id, gate_id, gate["queue_length"], 0,
-                    "simulation", "SYNTHETIC", now_iso, conn, commit=False,
-                )
-            for road_id, load in road_load.items():
-                road_capacity = roads[road_id].get("capacity")
-                self.twin_service.update_road_state(
-                    scenario.campus_id, road_id, load, _congestion_level(load, road_capacity),
-                    "simulation", "SYNTHETIC", now_iso, conn, commit=False,
-                )
-            for rv in running_vehicles:
-                if rv.state not in ("arrival",):  # only persist vehicles that have actually started their lifecycle
-                    self.twin_service.update_vehicle_state(
-                        scenario.campus_id, rv.vehicle.vehicle_id, rv.state, "simulation", now_iso, conn,
-                        destination_id=rv.vehicle.destination_id,
-                        assigned_parking_lot_id=rv.assigned_lot_id,
-                        commit=False,
+            if minute_end:  # persist + record once per simulated minute
+                now_iso = datetime.now(timezone.utc).isoformat()
+                for gate_id, gate in gates.items():
+                    self.twin_service.update_gate_state(
+                        scenario.campus_id, gate_id, gate["queue_length"], 0,
+                        "simulation", "SYNTHETIC", now_iso, conn, commit=False,
                     )
-            conn.commit()  # one batched commit per tick instead of one per write
+                for road_id, load in road_load.items():
+                    road_capacity = roads[road_id].get("capacity")
+                    self.twin_service.update_road_state(
+                        scenario.campus_id, road_id, load, _congestion_level(load, road_capacity),
+                        "simulation", "SYNTHETIC", now_iso, conn, commit=False,
+                    )
+                for rv in running_vehicles:
+                    if rv.state not in ("arrival",):  # only persist vehicles that have actually started their lifecycle
+                        self.twin_service.update_vehicle_state(
+                            scenario.campus_id, rv.vehicle.vehicle_id, rv.state, "simulation", now_iso, conn,
+                            destination_id=rv.vehicle.destination_id,
+                            assigned_parking_lot_id=rv.assigned_lot_id,
+                            commit=False,
+                        )
+                conn.commit()  # one batched commit per simulated minute instead of one per write
 
-            overflow_this_tick = {e["parking_lot_id"] for e in overflow_events if e["tick"] == tick}
-            timesteps_metrics.append({
-                "tick": tick,
-                **{f"gate_queue_{g}": gates[g]["queue_length"] for g in gates},
-                **{f"parking_occupancy_{p}": parking_lots[p]["occupied_spaces"] for p in parking_lots},
-                **{f"overflow_{p}": p in overflow_this_tick for p in parking_lots},
-                **{f"road_load_{r}": road_load[r] for r in roads},
-            })
-            road_load = {r: 0 for r in road_load}
+                overflow_this_tick = {e["parking_lot_id"] for e in overflow_events if e["tick"] == minute}
+                timesteps_metrics.append({
+                    "tick": minute,
+                    **{f"gate_queue_{g}": gates[g]["queue_length"] for g in gates},
+                    **{f"gate_throughput_{g}": gate_throughput[g] for g in gates},
+                    **{f"parking_occupancy_{p}": parking_lots[p]["occupied_spaces"] for p in parking_lots},
+                    **{f"overflow_{p}": p in overflow_this_tick for p in parking_lots},
+                    **{f"road_load_{r}": road_load[r] for r in roads},
+                })
+                road_load = {r: 0 for r in road_load}
+                gate_throughput = {g: 0 for g in gates}
 
         vehicle_metrics = []
         for rv in running_vehicles:
-            waiting_time = ((rv.gate_admitted_tick - rv.queue_enter_tick) * 60) if rv.gate_admitted_tick and rv.queue_enter_tick else 0
+            waiting_time = ((rv.gate_admitted_tick - rv.queue_enter_tick) * dt) if rv.gate_admitted_tick is not None and rv.queue_enter_tick is not None else 0
             # Normalize internal states to canonical output states
             _state_map = {
                 "completed": "exited",
@@ -494,11 +672,52 @@ class SimulationEngine:
                 "departure": "in_system",
                 "route": "in_system",
                 "parking_search": "in_system",
+                "searching": "in_system",
                 "campus_entry": "in_system",
                 "gate_queue": "in_system",
                 "arrival": "in_system",
             }
             canonical_state = _state_map.get(rv.state, "rejected")
+            # Reconstruct state trace from recorded tick fields for VERIFY output
+            _spec_state = {
+                "arrival": "SCHEDULED",
+                "gate_queue": "QUEUED_AT_GATE",
+                "campus_entry": "ENTERING",
+                "route": "DRIVING",
+                "parking_search": "DRIVING",
+                "searching": "SEARCHING",
+                "parked": "PARKED",
+                "departure": "DEPARTING",
+                "completed": "EXITED",
+                "rejected": "REJECTED_OVERFLOW",
+            }
+            def _m(t):
+                return None if t is None else t // tpm
+
+            def _ev(t, state):
+                return {"tick": t // tpm, "t_sec": t * dt, "state": state}
+
+            # Trace timestamps: "tick" in minutes (contract), "t_sec" in seconds since scenario start.
+            trace = []
+            if rv.vehicle.arrival_tick is not None:
+                trace.append(_ev(rv.arrival_engine_tick, "SCHEDULED"))
+            if rv.queue_enter_tick is not None:
+                trace.append(_ev(rv.queue_enter_tick, "QUEUED_AT_GATE"))
+            if rv.gate_admitted_tick is not None:
+                trace.append(_ev(rv.gate_admitted_tick, "ENTERING"))
+            # DRIVING = gate -> lot transit (BPR time); SEARCHING = at the lot, duration base+k*occ^2 (analytic)
+            if rv.search_start_tick is not None:
+                trace.append(_ev(rv.search_start_tick, "DRIVING"))
+            if rv.lot_arrival_tick is not None:
+                trace.append(_ev(rv.lot_arrival_tick, "SEARCHING"))
+            if rv.search_end_tick is not None:
+                trace.append(_ev(rv.search_end_tick, "PARKED"))
+            if rv.departure_tick is not None:
+                trace.append(_ev(rv.departure_tick, "DEPARTING"))
+            if rv.completion_tick is not None:
+                trace.append(_ev(rv.completion_tick, "EXITED"))
+            if canonical_state == "rejected":
+                trace.append(_ev(rv.search_start_tick if rv.search_start_tick is not None else rv.arrival_engine_tick, "REJECTED_OVERFLOW"))
             vehicle_metrics.append({
                 "vehicle_id": rv.vehicle.vehicle_id,
                 "entry_gate": rv.vehicle.entry_gate,
@@ -508,12 +727,22 @@ class SimulationEngine:
                 "search_time_seconds": rv.occupancy_search_seconds,  # Fix 2: occupancy-based
                 "waiting_time_seconds": waiting_time,
                 "travel_time_seconds": rv.outbound_transit_seconds,   # Fix 1: gate→lot BPR only
-                "end_to_end_time_seconds": (rv.completion_tick - rv.vehicle.arrival_tick) * 60 if rv.completion_tick else None,
+                "end_to_end_time_seconds": (rv.completion_tick - rv.arrival_engine_tick) * dt if rv.completion_tick else None,
                 "travel_distance_meters": rv.outbound_distance_meters + rv.inbound_distance_meters,
                 "assigned_lot_id": rv.assigned_lot_id,
                 "final_state": canonical_state,
                 "internal_state": rv.state,
                 "complied": rv.vehicle.complies_with_strategy,
+                "vehicle_type": rv.vehicle.vehicle_type,
+                "reassigned_count": rv.reassigned_count,
+                # Tick fields for verbose trace reconstruction
+                "queue_enter_tick": _m(rv.queue_enter_tick),
+                "gate_admitted_tick": _m(rv.gate_admitted_tick),
+                "search_start_tick": _m(rv.search_start_tick),
+                "lot_arrival_tick": _m(rv.lot_arrival_tick),
+                "search_end_tick": _m(rv.search_end_tick),
+                "completion_tick": _m(rv.completion_tick),
+                "state_trace": trace,
             })
 
         completed_at = datetime.now(timezone.utc).isoformat()
@@ -534,7 +763,8 @@ class SimulationEngine:
         conn.commit()
 
         # Record metrics to disk (Phase 8)
-        recorder = MetricsRecorder()
+        recorder_kwargs = {"output_root": self.runs_dir} if self.runs_dir else {}
+        recorder = MetricsRecorder(**recorder_kwargs)
         try:
             recorder.record_run(
                 scenario_id=scenario.scenario_id,
@@ -555,11 +785,14 @@ class SimulationEngine:
             random_seed=scenario.random_seed, strategy_name=strategy_name,
             vehicles=vehicle_metrics, timesteps=timesteps_metrics, overflow_events=overflow_events,
             infeasibility_rejections=infeasibility_rejections, adapter_fallbacks=adapter_fallbacks,
-        ) # decision_latencies logged above, available for analysis
+            decision_latencies=decision_latencies, time_step_sec=dt,
+            config_hash=_config_hash, git_sha=_git_sha,
+            runtime_sec=round(_time.monotonic() - _run_start, 3),
+        )
 
     @staticmethod
     def _generate_arrivals(scenario: ScenarioConfig, rng: random.Random, open_gate_ids, destination_ids) -> list:
-        """Deterministic given rng: arrival ticks are weighted by the
+        """Deterministic given rng: arrival minutes are weighted by the
         scenario's arrival_rate_profile shape, event-aware demand multiplier,
         entry gate and destination are chosen uniformly via the same seeded rng.
 
@@ -568,7 +801,7 @@ class SimulationEngine:
         ticks = list(range(scenario.duration_minutes))
         warmdown_start = scenario.duration_minutes - max(0, scenario.warmdown_minutes)
 
-        # Base arrival rate per tick; zero out arrivals during warm-down window
+        # Base arrival rate per MINUTE (scenario units); zero out arrivals during warm-down window
         weights = [
             max(0.0001, _arrival_rate_at(scenario.arrival_rate_profile, t)) if t < warmdown_start else 0.0
             for t in ticks
@@ -593,13 +826,36 @@ class SimulationEngine:
             gate_id = rng.choice(sorted(open_gate_ids))
             destination_id = rng.choice(sorted(destination_ids)) if destination_ids else None
             compliance = rng.random() < scenario.event_conditions.get("compliance_rate", 0.85) if scenario.event_conditions else True
-            vehicles.append(_RunningVehicle(
+            rv = _RunningVehicle(
                 vehicle=Vehicle(
                     vehicle_id=f"{scenario.scenario_id}-v{i}",
                     entry_gate=gate_id, destination_id=destination_id, arrival_tick=tick,
                     complies_with_strategy=compliance,
                 )
-            ))
+            )
+            # Dwell precedence: event window override > vehicle type > global lognormal.
+            # Vehicle types (scenario.vehicle_types) draw one extra RNG value per vehicle, only when configured.
+            if scenario.vehicle_types:
+                tnames = sorted(scenario.vehicle_types)
+                tname = rng.choices(tnames, weights=[scenario.vehicle_types[t]["share"] for t in tnames])[0]
+                tspec = scenario.vehicle_types[tname]
+                rv.vehicle.vehicle_type = tname
+                rv.dwell_mu = math.log(tspec["dwell_median_minutes"])
+                rv.dwell_sigma = tspec.get("dwell_sigma", DWELL_LOGNORMAL_SIGMA)
+            ec = scenario.event_conditions or {}
+            if ec.get("dwell_median_minutes") and ec.get("start_tick", 0) <= tick < ec.get("start_tick", 0) + ec.get("duration_ticks", 0):
+                rv.dwell_mu = math.log(ec["dwell_median_minutes"])
+                rv.dwell_sigma = ec.get("dwell_sigma", DWELL_LOGNORMAL_SIGMA)
+            vehicles.append(rv)
+
+        # Sub-minute arrival time: spread the n vehicles of a minute evenly over its ticks (deterministic, no RNG).
+        tpm = 60 // scenario.time_step_sec
+        by_minute = {}
+        for rv in vehicles:
+            by_minute.setdefault(rv.vehicle.arrival_tick, []).append(rv)
+        for minute_, group in by_minute.items():
+            for k, rv in enumerate(group):
+                rv.arrival_engine_tick = minute_ * tpm + (k * tpm) // len(group)
         return vehicles
 
     @staticmethod
@@ -670,11 +926,17 @@ class SimulationEngine:
         Uses shortest path distance from current node."""
         if not open_lot_ids:
             return None
-        candidates = [
-            (lot_id, nx.shortest_path_length(graph, from_node, lot_id, weight="weight_distance_meters"))
-            for lot_id in open_lot_ids
-            if lot_id in graph and parking_lots[lot_id]["occupied_spaces"] < parking_lots[lot_id]["usable_capacity"]
-        ]
+        candidates = []
+        for lot_id in open_lot_ids:
+            if lot_id not in graph:
+                continue
+            if parking_lots[lot_id]["occupied_spaces"] >= parking_lots[lot_id]["usable_capacity"]:
+                continue
+            try:
+                dist = nx.shortest_path_length(graph, from_node, lot_id, weight="weight_distance_meters")
+                candidates.append((lot_id, dist))
+            except (nx.NetworkXNoPath, nx.NodeNotFound):
+                pass
         if not candidates:
             return None
         return min(candidates, key=lambda x: x[1])[0]

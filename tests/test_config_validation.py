@@ -1,12 +1,14 @@
-"""
+﻿"""
 Config Validator: Comprehensive test suite for all invalid configurations.
 Tests Section 19 Definition of Done item: "Validator rejects all invalid configs with clear messages"
 """
 
-import pytest
 from pathlib import Path
-from digital_twin.config_loader import load_campus_config, CampusConfigError
-from digital_twin.db import get_connection, apply_migrations
+
+import pytest
+
+from digital_twin.config_loader import CampusConfigError, load_campus_config
+from digital_twin.db import apply_migrations, get_connection
 
 
 class TestConfigValidation:
@@ -21,14 +23,14 @@ class TestConfigValidation:
 
     def test_valid_sample_config_loads(self, fresh_db):
         """Baseline: valid config loads without error."""
-        load_campus_config(Path('configs/campuses/sample.yaml'), fresh_db)
+        load_campus_config(Path('configs/campus/sample.yaml'), fresh_db)
         cursor = fresh_db.cursor()
         cursor.execute("SELECT COUNT(*) FROM campuses")
         assert cursor.fetchone()[0] == 1
 
     def test_valid_vitap_config_loads(self, fresh_db):
         """Baseline: real VIT-AP config loads."""
-        load_campus_config(Path('configs/campuses/vitap.yaml'), fresh_db)
+        load_campus_config(Path('configs/campus/vitap.yaml'), fresh_db)
         cursor = fresh_db.cursor()
         cursor.execute("SELECT COUNT(*) FROM campuses")
         assert cursor.fetchone()[0] == 1
@@ -103,7 +105,7 @@ zones:
             load_campus_config(config_file, fresh_db)
 
     def test_negative_capacity_rejected(self, fresh_db, tmp_path):
-        """Error: Lot with capacity ≤ 0."""
+        """Error: Lot with capacity â‰¤ 0."""
         config = """
 campus:
   id: test_bad_capacity
