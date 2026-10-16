@@ -1,4 +1,4 @@
-# Active digital_twin/ subsystem dependencies. See docs/member1/README.md.
+# ParkingNav-X backend dependencies
 fastapi>=0.115,<0.116
 uvicorn>=0.34,<0.35
 networkx>=3.4,<3.5
@@ -7,7 +7,13 @@ pandas>=2.2,<2.3
 pyarrow>=21.0,<22.0
 PyYAML>=6.0,<7.0
 
-# Optional: SimPy multi-lane gate servers (scenario field gate_model: simpy). Tests skip without it.
+# ML / Prediction engine (Stage 6)
+xgboost>=2.0,<3.0
+scikit-learn>=1.5,<2.0
+scipy>=1.13,<2.0
+joblib>=1.4,<2.0
+
+# Simulation support
 simpy>=4.1,<5
 
 # Testing
