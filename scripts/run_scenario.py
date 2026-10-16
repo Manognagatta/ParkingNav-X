@@ -1,8 +1,4 @@
-<<<<<<< HEAD
 """
-=======
-﻿"""
->>>>>>> 7e7480a3c640692a24ace314c17353395f1eb2fc
 Run a VIT-AP scenario across all strategies and compare results side by side.
 
 Usage:
@@ -23,21 +19,6 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-<<<<<<< HEAD
-from digital_twin.config_loader import load_campus_config
-from digital_twin.db import apply_migrations, get_connection
-from digital_twin.simulation.engine import SimulationEngine
-from digital_twin.simulation.scenario import ScenarioLoader
-from digital_twin.simulation.strategy import FirstAvailableStrategy, NearestAvailableStrategy
-from digital_twin.simulation.demo_strategies import (
-    DemoNearestAvailableStrategy,
-    PredictionOnlyStrategy,
-    ParkingNavXFullStrategy,
-)
-
-SCENARIO_DIR = ROOT / "configs" / "scenarios" / "vitap"
-CAMPUS_YAML  = ROOT / "configs" / "campuses" / "vitap.yaml"
-=======
 from digital_twin.config_loader import load_campus_config  # noqa: E402
 from digital_twin.db import apply_migrations, get_connection  # noqa: E402
 from digital_twin.simulation.demo_strategies import (  # noqa: E402
@@ -53,7 +34,6 @@ from digital_twin.simulation.strategy import (  # noqa: E402
 
 SCENARIO_DIR = ROOT / "configs" / "scenarios" / "vitap"
 CAMPUS_YAML  = ROOT / "configs" / "campus" / "vitap.yaml"
->>>>>>> 7e7480a3c640692a24ace314c17353395f1eb2fc
 
 STRATEGIES = [
     ("B1", "First Available",           FirstAvailableStrategy()),
@@ -67,7 +47,7 @@ W = 28  # column width
 
 def fmt(val, suffix=""):
     if val is None or val == "":
-        return "—"
+        return "-"
     if isinstance(val, float):
         return f"{val:.2f}{suffix}"
     return f"{val}{suffix}"
@@ -96,21 +76,12 @@ def main():
     scenario = ScenarioLoader.load(scenario_file)
 
     print(f"\n{'='*100}")
-<<<<<<< HEAD
-    print(f"  ParkingNav-X  |  VIT-AP University Smart Parking Digital Twin")
-    print(f"  Scenario  : {scenario_name}")
-    print(f"  Campus    : VIT-AP, Amaravati, Andhra Pradesh")
-    print(f"  Duration  : {scenario.duration_minutes} min  |  Vehicles : {scenario.vehicle_count}")
-    print(f"{'='*100}")
-    print(f"  Running all 4 strategies (B1 → B2 → B3 → P) ...\n")
-=======
     print("  ParkingNav-X  |  VIT-AP University Smart Parking Digital Twin")
     print(f"  Scenario  : {scenario_name}")
     print("  Campus    : VIT-AP, Amaravati, Andhra Pradesh")
     print(f"  Duration  : {scenario.duration_minutes} min  |  Vehicles : {scenario.vehicle_count}")
     print(f"{'='*100}")
-    print("  Running all 4 strategies (B1 → B2 → B3 → P) ...\n")
->>>>>>> 7e7480a3c640692a24ace314c17353395f1eb2fc
+    print("  Running all 4 strategies (B1 -> B2 -> B3 -> P) ...\n")
 
     results = []
     for code, name, strategy in STRATEGIES:
@@ -123,7 +94,7 @@ def main():
 
     conn.close()
 
-    # ── Comparison table ──────────────────────────────────────────────────
+    # -- Comparison table -------------------------------------------------------
     col = 18
     headers = [f"{r[0]}-{r[1].split()[0]}" for r in results]
     metrics_list = [r[2] for r in results]
@@ -145,24 +116,16 @@ def main():
     row("Peak gate queue",       "max_gate_queue")
     print(f"{'─'*100}")
 
-    # ── Winner ────────────────────────────────────────────────────────────
+    # -- Winner ----------------------------------------------------------------
     search_times = [m.get("avg_search_time_min") or 999 for m in metrics_list]
     best_idx = search_times.index(min(search_times))
     best = results[best_idx]
     print(f"\n  Best strategy : [{best[0]}] {best[1]}  (lowest avg search time)")
-<<<<<<< HEAD
-    print(f"\n  What each strategy does:")
-    print(f"   B1  First Available     — naive, no optimisation")
-    print(f"   B2  Nearest Available   — picks closest open lot")
-    print(f"   B3  Prediction only     — avoids nearly-full lots using fill-rate forecast")
-    print(f"   P   ParkingNav-X (full) — prediction + gate load balancing + zone routing")
-=======
     print("\n  What each strategy does:")
-    print("   B1  First Available     — naive, no optimisation")
-    print("   B2  Nearest Available   — picks closest open lot")
-    print("   B3  Prediction only     — avoids nearly-full lots using fill-rate forecast")
-    print("   P   ParkingNav-X (full) — prediction + gate load balancing + zone routing")
->>>>>>> 7e7480a3c640692a24ace314c17353395f1eb2fc
+    print("   B1  First Available     - naive, no optimisation")
+    print("   B2  Nearest Available   - picks closest open lot")
+    print("   B3  Prediction only     - avoids nearly-full lots using fill-rate forecast")
+    print("   P   ParkingNav-X (full) - prediction + gate load balancing + zone routing")
     print(f"\n  Results saved to: runs/vitap-{scenario_name}/")
     print(f"{'='*100}\n")
 

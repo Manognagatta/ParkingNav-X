@@ -1,37 +1,18 @@
-<<<<<<< HEAD
 """
-Member 1 — Complete Proof Script
-=======
-﻿"""
-Member 1 â€” Complete Proof Script
->>>>>>> 7e7480a3c640692a24ace314c17353395f1eb2fc
+Member 1 - Complete Proof Script
 Run this to demonstrate all Member 1 deliverables are working correctly.
 
 Usage:
     python scripts/prove_member1.py
 """
 import json
-<<<<<<< HEAD
-import time
-from pathlib import Path
-import sys
-=======
 import sys
 import time
 from pathlib import Path
->>>>>>> 7e7480a3c640692a24ace314c17353395f1eb2fc
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-<<<<<<< HEAD
-from digital_twin.config_loader import load_campus_config
-from digital_twin.db import apply_migrations, get_connection
-from digital_twin.simulation.engine import SimulationEngine
-from digital_twin.simulation.scenario import ScenarioLoader
-from digital_twin.simulation.strategy import FirstAvailableStrategy, NearestAvailableStrategy
-from digital_twin.simulation.demo_strategies import PredictionOnlyStrategy, ParkingNavXFullStrategy
-=======
 from digital_twin.config_loader import load_campus_config  # noqa: E402
 from digital_twin.db import apply_migrations, get_connection  # noqa: E402
 from digital_twin.simulation.demo_strategies import (  # noqa: E402
@@ -44,7 +25,6 @@ from digital_twin.simulation.strategy import (  # noqa: E402
     FirstAvailableStrategy,
     NearestAvailableStrategy,
 )
->>>>>>> 7e7480a3c640692a24ace314c17353395f1eb2fc
 
 SEP  = "=" * 70
 SEP2 = "-" * 70
@@ -61,27 +41,15 @@ def show(label, value):
     print(f"  {label:<35} : {value}")
 
 
-<<<<<<< HEAD
-# ── Setup ─────────────────────────────────────────────────────────────────────
+# -- Setup ---------------------------------------------------------------------
 conn = get_connection(ROOT / "digital_twin.db")
 apply_migrations(conn)
 
-# ─────────────────────────────────────────────────────────────────────────────
-section("PROOF 1 — Campus Configuration (O1: Digital Twin Design)")
-# ─────────────────────────────────────────────────────────────────────────────
-
-load_campus_config(ROOT / "configs/campuses/vitap.yaml", conn)
-=======
-# â”€â”€ Setup â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-conn = get_connection(ROOT / "digital_twin.db")
-apply_migrations(conn)
-
-# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-section("PROOF 1 â€” Campus Configuration (O1: Digital Twin Design)")
-# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ------------------------------------------------------------------------------
+section("PROOF 1 - Campus Configuration (O1: Digital Twin Design)")
+# ------------------------------------------------------------------------------
 
 load_campus_config(ROOT / "configs/campus/vitap.yaml", conn)
->>>>>>> 7e7480a3c640692a24ace314c17353395f1eb2fc
 
 gates = conn.execute("SELECT gate_id, name, capacity, status FROM gates WHERE campus_id='vitap'").fetchall()
 lots  = conn.execute("SELECT parking_lot_id, name, total_capacity, zone FROM parking_lots WHERE campus_id='vitap'").fetchall()
@@ -89,11 +57,7 @@ roads = conn.execute("SELECT road_id, name, length_meters FROM roads WHERE campu
 dests = conn.execute("SELECT destination_id, name, category FROM destinations WHERE campus_id='vitap'").fetchall()
 events = conn.execute("SELECT event_id, name, event_type, status FROM events WHERE campus_id='vitap'").fetchall()
 
-<<<<<<< HEAD
-print(f"\n  Campus: VIT-AP University, Amaravati, Andhra Pradesh")
-=======
 print("\n  Campus: VIT-AP University, Amaravati, Andhra Pradesh")
->>>>>>> 7e7480a3c640692a24ace314c17353395f1eb2fc
 print(f"\n  Gates ({len(gates)}):")
 for g in gates:
     print(f"    {g[0]:<20} {g[1]:<30} capacity={g[2]}  status={g[3]}")
@@ -121,20 +85,9 @@ for e in events:
 ok(f"Campus loaded: {len(gates)} gates, {len(lots)} lots, {len(roads)} roads, {len(dests)} destinations, {len(events)} events")
 
 
-<<<<<<< HEAD
-# ─────────────────────────────────────────────────────────────────────────────
-section("PROOF 2 — Digital Twin State Engine (M2: State Manager)")
-# ─────────────────────────────────────────────────────────────────────────────
-
-from digital_twin.twin_service import DigitalTwinService
-twin = DigitalTwinService(conn)
-state = twin.get_state("vitap")
-
-print(f"\n  Live Digital Twin State Snapshot:")
-=======
-# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-section("PROOF 2 â€” Digital Twin State Engine (M2: State Manager)")
-# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ------------------------------------------------------------------------------
+section("PROOF 2 - Digital Twin State Engine (M2: State Manager)")
+# ------------------------------------------------------------------------------
 
 from digital_twin.twin_service import DigitalTwinService  # noqa: E402
 
@@ -142,7 +95,6 @@ twin = DigitalTwinService(conn)
 state = twin.get_state("vitap")
 
 print("\n  Live Digital Twin State Snapshot:")
->>>>>>> 7e7480a3c640692a24ace314c17353395f1eb2fc
 print(f"  {'Campus ID':<30} : {state.get('campus_id', 'vitap')}")
 print(f"  {'Active parking lots':<30} : {len(state.get('parking_lots', {}))}")
 print(f"  {'Active gates':<30} : {len(state.get('gates', {}))}")
@@ -157,20 +109,12 @@ for lot_id, lot in list(state.get('parking_lots', {}).items())[:3]:
 ok("Digital Twin state engine is live and returning dynamic campus state")
 
 
-<<<<<<< HEAD
-# ─────────────────────────────────────────────────────────────────────────────
-section("PROOF 3 — Reproducibility (Section 34: Same seed = identical results)")
-# ─────────────────────────────────────────────────────────────────────────────
-
-import uuid
-=======
-# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-section("PROOF 3 â€” Reproducibility (Section 34: Same seed = identical results)")
-# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ------------------------------------------------------------------------------
+section("PROOF 3 - Reproducibility (Section 34: Same seed = identical results)")
+# ------------------------------------------------------------------------------
 
 import uuid  # noqa: E402
 
->>>>>>> 7e7480a3c640692a24ace314c17353395f1eb2fc
 scenario = ScenarioLoader.load(ROOT / "configs/scenarios/vitap/E1_normal_day.yaml")
 engine = SimulationEngine()
 strategy = NearestAvailableStrategy()
@@ -185,21 +129,12 @@ print(f"  Run 1  overflow_events = {m1['overflow_events_count']}")
 print(f"  Run 2  overflow_events = {m2['overflow_events_count']}")
 match = m1['avg_search_time_min'] == m2['avg_search_time_min']
 print(f"\n  Results identical: {match}")
-<<<<<<< HEAD
-ok("Deterministic simulation confirmed — same seed produces identical results")
+ok("Deterministic simulation confirmed - same seed produces identical results")
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-section("PROOF 4 — All 7 Experiments (Section 20: Experiment Plan)")
-# ─────────────────────────────────────────────────────────────────────────────
-=======
-ok("Deterministic simulation confirmed â€” same seed produces identical results")
-
-
-# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-section("PROOF 4 â€” All 7 Experiments (Section 20: Experiment Plan)")
-# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
->>>>>>> 7e7480a3c640692a24ace314c17353395f1eb2fc
+# ------------------------------------------------------------------------------
+section("PROOF 4 - All 7 Experiments (Section 20: Experiment Plan)")
+# ------------------------------------------------------------------------------
 
 EXPERIMENTS = [
     ("E1", "E1_normal_day",      "Normal campus day baseline"),
@@ -246,29 +181,16 @@ for exp_id, scenario_name, description in EXPERIMENTS:
 ok("All experiments executed and saved to runs/")
 
 
-<<<<<<< HEAD
-# ─────────────────────────────────────────────────────────────────────────────
-section("PROOF 5 — Strategy Comparison Summary (Section 17: Baselines)")
-# ─────────────────────────────────────────────────────────────────────────────
-
-print(f"""
-  Strategy definitions (from proposal Section 17):
-  B1  First Available     — assign first feasible available lot (naive)
-  B2  Nearest Available   — assign closest feasible lot by distance
-  B3  Prediction Only     — use fill-rate forecast to avoid nearly-full lots
-  P   ParkingNav-X (full) — prediction + gate load balancing + zone routing
-=======
-# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-section("PROOF 5 â€” Strategy Comparison Summary (Section 17: Baselines)")
-# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ------------------------------------------------------------------------------
+section("PROOF 5 - Strategy Comparison Summary (Section 17: Baselines)")
+# ------------------------------------------------------------------------------
 
 print("""
   Strategy definitions (from proposal Section 17):
-  B1  First Available     â€” assign first feasible available lot (naive)
-  B2  Nearest Available   â€” assign closest feasible lot by distance
-  B3  Prediction Only     â€” use fill-rate forecast to avoid nearly-full lots
-  P   ParkingNav-X (full) â€” prediction + gate load balancing + zone routing
->>>>>>> 7e7480a3c640692a24ace314c17353395f1eb2fc
+  B1  First Available     - assign first feasible available lot (naive)
+  B2  Nearest Available   - assign closest feasible lot by distance
+  B3  Prediction Only     - use fill-rate forecast to avoid nearly-full lots
+  P   ParkingNav-X (full) - prediction + gate load balancing + zone routing
 
   Peak-hour scenario results:
 """)
@@ -290,21 +212,12 @@ b1_ov = peak_results["B1"]["overflow_events_count"]
 p_ov  = peak_results["P"]["overflow_events_count"]
 improvement = round((b1_ov - p_ov) / b1_ov * 100) if b1_ov > 0 else 100
 print(f"\n  Overflow improvement B1 -> P : {b1_ov} -> {p_ov}  ({improvement}% reduction)")
-<<<<<<< HEAD
-ok("ParkingNav-X outperforms all baselines — hypothesis H1 supported")
+ok("ParkingNav-X outperforms all baselines - hypothesis H1 supported")
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-section("PROOF 6 — Scalability (Section 25: 500 & 1000 vehicles)")
-# ─────────────────────────────────────────────────────────────────────────────
-=======
-ok("ParkingNav-X outperforms all baselines â€” hypothesis H1 supported")
-
-
-# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-section("PROOF 6 â€” Scalability (Section 25: 500 & 1000 vehicles)")
-# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
->>>>>>> 7e7480a3c640692a24ace314c17353395f1eb2fc
+# ------------------------------------------------------------------------------
+section("PROOF 6 - Scalability (Section 25: 500 & 1000 vehicles)")
+# ------------------------------------------------------------------------------
 
 for sc_name in ["scale_500", "high_traffic"]:
     sc_file = ROOT / "configs/scenarios/vitap" / f"{sc_name}.yaml"
@@ -317,45 +230,24 @@ for sc_name in ["scale_500", "high_traffic"]:
         print(f"    Runtime      : {elapsed}s")
         print(f"    Overflow     : {r.metrics['overflow_events_count']}")
         print(f"    Search time  : {round(r.metrics['avg_search_time_min'],2)} min")
-<<<<<<< HEAD
-        ok(f"{sc_name} completed in {elapsed}s — system is scalable")
+        ok(f"{sc_name} completed in {elapsed}s - system is scalable")
 
 conn.close()
 
-# ─────────────────────────────────────────────────────────────────────────────
+# ------------------------------------------------------------------------------
 section("MEMBER 1 PROOF COMPLETE")
-# ─────────────────────────────────────────────────────────────────────────────
+# ------------------------------------------------------------------------------
 print(f"""
   Deliverable                        Status
   {SEP2}
-  O1  Digital Twin (campus config)   DONE — 2 gates, 5 lots, roads, 13 dest
-  O2  Simulation engine              DONE — deterministic, reproducible
-  M2  State engine                   DONE — live dynamic state
-  M4  Baseline strategies (B1-B4)    DONE — all 4 strategies running
-  E1-E7 Experiments                  DONE — all saved to runs/
-  Scalability                        DONE — 500+ vehicles tested
-  Reproducibility                    DONE — same seed = identical output
-  API                                DONE — uvicorn digital_twin.api.app:app
-=======
-        ok(f"{sc_name} completed in {elapsed}s â€” system is scalable")
-
-conn.close()
-
-# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-section("MEMBER 1 PROOF COMPLETE")
-# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-print(f"""
-  Deliverable                        Status
-  {SEP2}
-  O1  Digital Twin (campus config)   DONE â€” 2 gates, 5 lots, roads, 13 dest
-  O2  Simulation engine              DONE â€” deterministic, reproducible
-  M2  State engine                   DONE â€” live dynamic state
-  M4  Baseline strategies (B1-B4)    DONE â€” all 4 strategies running
-  E1-E7 Experiments                  DONE â€” all saved to runs/
-  Scalability                        DONE â€” 500+ vehicles tested
-  Reproducibility                    DONE â€” same seed = identical output
-  API                                DONE â€” uvicorn digital_twin.api.app:app
->>>>>>> 7e7480a3c640692a24ace314c17353395f1eb2fc
+  O1  Digital Twin (campus config)   DONE - 2 gates, 5 lots, roads, 13 dest
+  O2  Simulation engine              DONE - deterministic, reproducible
+  M2  State engine                   DONE - live dynamic state
+  M4  Baseline strategies (B1-B4)    DONE - all 4 strategies running
+  E1-E7 Experiments                  DONE - all saved to runs/
+  Scalability                        DONE - 500+ vehicles tested
+  Reproducibility                    DONE - same seed = identical output
+  API                                DONE - uvicorn digital_twin.api.app:app
   {SEP2}
   ALL MEMBER 1 DELIVERABLES VERIFIED AND WORKING
 {SEP}

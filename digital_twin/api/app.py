@@ -170,7 +170,7 @@ def list_strategies():
             {"code": "B1", "name": "First Available",     "description": "Naive — assigns first open lot found"},
             {"code": "B2", "name": "Nearest Available",   "description": "Picks the closest open lot by distance"},
             {"code": "B3", "name": "Prediction Only",     "description": "Avoids nearly-full lots using fill-rate forecast"},
-            {"code": "B4", "name": "ParkingNav-X (full)", "description": "Prediction + gate load balancing + zone routing"},
+            {"code": "P",  "name": "ParkingNav-X (full)", "description": "Prediction + gate load balancing + zone routing"},
         ]
     }
 
@@ -224,7 +224,7 @@ def compare_strategies(scenario: str):
 
     conn = get_conn()
     results = {}
-    for code in ["B1", "B2", "B3", "B4"]:
+    for code in ["B1", "B2", "B3", "P"]:
         strategy = STRATEGIES[code]
         sc = ScenarioLoader.load(scenario_file)
         engine = SimulationEngine()

@@ -16,6 +16,7 @@ MAIN_GATE_ROADS = [
     "vitap-road-main-gate-to-hostel-lot",
     "vitap-road-main-gate-to-admin-lot",
     "vitap-road-main-gate-to-sports-lot",
+    "vitap-road-main-gate-to-overflow",
 ]
 START, END = 120, 180
 

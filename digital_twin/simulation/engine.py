@@ -656,6 +656,7 @@ class SimulationEngine:
                     **{f"gate_queue_{g}": gates[g]["queue_length"] for g in gates},
                     **{f"gate_throughput_{g}": gate_throughput[g] for g in gates},
                     **{f"parking_occupancy_{p}": parking_lots[p]["occupied_spaces"] for p in parking_lots},
+                    **{f"parking_capacity_{p}": parking_lots[p]["usable_capacity"] for p in parking_lots},
                     **{f"overflow_{p}": p in overflow_this_tick for p in parking_lots},
                     **{f"road_load_{r}": road_load[r] for r in roads},
                 })

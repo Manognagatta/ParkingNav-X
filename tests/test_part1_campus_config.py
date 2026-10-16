@@ -46,7 +46,7 @@ def test_reloading_same_file_produces_zero_new_rows(conn):
 def test_vitap_campus_loads_successfully(conn):
     campus_id = load_campus_config(CONFIGS / "vitap.yaml", conn)
     assert campus_id == "vitap"
-    assert conn.execute("SELECT COUNT(*) FROM destinations WHERE campus_id='vitap'").fetchone()[0] == 13
+    assert conn.execute("SELECT COUNT(*) FROM destinations WHERE campus_id='vitap'").fetchone()[0] == 17
     # VIT-AP keeps its events in data/vitap_events.csv; the loader reads them from there.
     assert conn.execute("SELECT COUNT(*) FROM events WHERE campus_id='vitap'").fetchone()[0] == 10
 
