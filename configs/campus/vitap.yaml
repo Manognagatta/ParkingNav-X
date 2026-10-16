@@ -1,31 +1,33 @@
-# VIT-AP Campus Configuration v2.0 - FIXED & COMPLETE
-# =====================================================
-# IMPROVEMENTS:
-# ✅ Gate & parking lot have DIFFERENT coordinates (no conflict)
-# ✅ Multiple parking lots (5 total) for realistic multi-lot optimization
-# ✅ Travel times calibrated to vehicle speed (5 m/s = 18 km/h campus speed)
-# ✅ Complete bidirectional road network (no orphaned nodes)
-# ✅ Reverse edges so vehicles can return
-# ✅ All capacity values realistic and non-zero
-# ✅ All foreign keys valid, no NULL values
+# VIT-AP Campus Configuration v3.0 - REAL MAP COORDINATES
+# =========================================================
+# Coordinates derived from the real VIT-AP campus layout image.
+# Campus center: ~16.4928°N, 80.4994°E (Amaravati, AP)
+# Map spans: lat 16.4888–16.4968 (N-S ~890m), lng 80.4940–80.5038 (E-W ~930m)
+#
+# COORDINATE LAYOUT (from the real campus map):
+#   North (top):  Main Gate at lat≈16.4961
+#   East (right): Alternative Gate at lat≈16.4930, lng≈80.5035
+#   SW (left):    Sports & Recreation Lot
+#   SE (lower):   Hostel Zone Parking, MH blocks, LH blocks
+# =========================================================
 
 campus:
   campus_id: vitap
   name: VIT-AP University
   description: Amaravati, Andhra Pradesh, India. Complete campus model with multiple parking zones.
   timezone: Asia/Kolkata
-  configuration_version: VITAP_CONFIG_V2
+  configuration_version: VITAP_CONFIG_V3_REALMAP
 
 # =====================================================
-# GATES (Entry/Exit Points) - 2 gates for realism
+# GATES — positions from real campus map image
+# Main Gate: TOP CENTER (north entrance)
+# Alternative Gate: RIGHT SIDE (east entrance)
 # =====================================================
 gates:
-  # Main gate - entrance to main campus area
-  # ASSUMED: 2 lanes × 3 veh/min/lane = 6 veh/min service rate (no measurement available)
   - gate_id: vitap-gate-main
     name: "Main Gate"
-    latitude: 16.4911715
-    longitude: 80.5018052
+    latitude: 16.4961
+    longitude: 80.4991
     capacity: 6
     status: open
     metadata:
@@ -34,12 +36,10 @@ gates:
       entry_exit_direction: "bidirectional"
       peak_throughput_per_hour: 150
 
-  # Visitor/Secondary gate
-  # ASSUMED: 1 lane × 3 veh/min/lane = 3 veh/min service rate (no measurement available)
   - gate_id: vitap-gate-visitor
     name: "Alternative Gate"
-    latitude: 16.4930000
-    longitude: 80.5028000
+    latitude: 16.4930
+    longitude: 80.5035
     capacity: 3
     status: open
     metadata:
@@ -49,88 +49,16 @@ gates:
       peak_throughput_per_hour: 80
 
 # =====================================================
-# PARKING LOTS (5 zones with realistic capacities)
+# PARKING LOTS — positions from real campus map image
 # =====================================================
 parking_lots:
-  # Zone A: Main academic block parking
-  - parking_lot_id: vitap-lot-academic-main
-    name: "Academic Block Main Lot"
-    latitude: 16.493500
-    longitude: 80.499500
-    zone: "academic_zone"
-    boundary_polygon: "POLYGON((16.493000 80.499000, 16.494000 80.499000, 16.494000 80.500000, 16.493000 80.500000, 16.493000 80.499000))"
-    total_capacity: 120
-    usable_capacity: 108
-    reserved_capacity: 8
-    restricted_capacity: 4
-    temporarily_unavailable_capacity: 0
-    status: open
-    metadata:
-      lot_type: "faculty_and_students"
-      access_level: "all"
-      vehicle_types: ["car", "two-wheeler"]
-
-  # Zone B: Hostel parking (large lot)
-  - parking_lot_id: vitap-lot-hostel
-    name: "Hostel Zone Parking"
-    latitude: 16.491500
-    longitude: 80.500800
-    zone: "hostel_zone"
-    boundary_polygon: "POLYGON((16.491000 80.500300, 16.492000 80.500300, 16.492000 80.501300, 16.491000 80.501300, 16.491000 80.500300))"
-    total_capacity: 180
-    usable_capacity: 162
-    reserved_capacity: 12
-    restricted_capacity: 6
-    temporarily_unavailable_capacity: 0
-    status: open
-    metadata:
-      lot_type: "student_residents"
-      access_level: "hostel_students"
-      vehicle_types: ["car", "two-wheeler"]
-
-  # Zone C: Administrative & visitor parking
-  - parking_lot_id: vitap-lot-admin-visitor
-    name: "Administrative & Visitor Lot"
-    latitude: 16.492800
-    longitude: 80.498200
-    zone: "admin_zone"
-    boundary_polygon: "POLYGON((16.492300 80.497700, 16.493300 80.497700, 16.493300 80.498700, 16.492300 80.498700, 16.492300 80.497700))"
-    total_capacity: 80
-    usable_capacity: 72
-    reserved_capacity: 5
-    restricted_capacity: 3
-    temporarily_unavailable_capacity: 0
-    status: open
-    metadata:
-      lot_type: "admin_and_visitors"
-      access_level: "admin_and_visitors"
-      vehicle_types: ["car", "two-wheeler"]
-
-  # Zone D: Sports & recreation parking
-  - parking_lot_id: vitap-lot-sports
-    name: "Sports & Recreation Lot"
-    latitude: 16.495200
-    longitude: 80.499000
-    zone: "sports_zone"
-    boundary_polygon: "POLYGON((16.494700 80.498500, 16.495700 80.498500, 16.495700 80.499500, 16.494700 80.499500, 16.494700 80.498500))"
-    total_capacity: 100
-    usable_capacity: 84
-    reserved_capacity: 7
-    restricted_capacity: 3
-    temporarily_unavailable_capacity: 6
-    status: open
-    metadata:
-      lot_type: "event_and_sports"
-      access_level: "all"
-      vehicle_types: ["car", "two-wheeler"]
-
-  # Zone E: Overflow parking (opened during peak hours)
+  # Near Main Gate, slightly northeast — matches image top-right area
   - parking_lot_id: vitap-lot-overflow
     name: "Overflow Parking"
-    latitude: 16.490000
-    longitude: 80.497000
+    latitude: 16.4957
+    longitude: 80.5008
     zone: "overflow_zone"
-    boundary_polygon: "POLYGON((16.489500 80.496500, 16.490500 80.496500, 16.490500 80.497500, 16.489500 80.497500, 16.489500 80.496500))"
+    boundary_polygon: "POLYGON((16.495200 80.500300, 16.496200 80.500300, 16.496200 80.501300, 16.495200 80.501300, 16.495200 80.500300))"
     total_capacity: 60
     usable_capacity: 46
     reserved_capacity: 4
@@ -143,18 +71,91 @@ parking_lots:
       vehicle_types: ["car", "two-wheeler"]
       opens_at_occupancy_percent: 85
 
+  # Right-center of campus, upper — matches image "Administrative & Visitor Lot"
+  - parking_lot_id: vitap-lot-admin-visitor
+    name: "Administrative & Visitor Lot"
+    latitude: 16.4937
+    longitude: 80.5015
+    zone: "admin_zone"
+    boundary_polygon: "POLYGON((16.493200 80.501000, 16.494200 80.501000, 16.494200 80.502000, 16.493200 80.502000, 16.493200 80.501000))"
+    total_capacity: 80
+    usable_capacity: 72
+    reserved_capacity: 5
+    restricted_capacity: 3
+    temporarily_unavailable_capacity: 0
+    status: open
+    metadata:
+      lot_type: "admin_and_visitors"
+      access_level: "admin_and_visitors"
+      vehicle_types: ["car", "two-wheeler"]
+
+  # Right side below admin lot — matches image "Academic Block Main Lot"
+  - parking_lot_id: vitap-lot-academic-main
+    name: "Academic Block Main Lot"
+    latitude: 16.4930
+    longitude: 80.5023
+    zone: "academic_zone"
+    boundary_polygon: "POLYGON((16.492500 80.501800, 16.493500 80.501800, 16.493500 80.502800, 16.492500 80.502800, 16.492500 80.501800))"
+    total_capacity: 120
+    usable_capacity: 108
+    reserved_capacity: 8
+    restricted_capacity: 4
+    temporarily_unavailable_capacity: 0
+    status: open
+    metadata:
+      lot_type: "faculty_and_students"
+      access_level: "all"
+      vehicle_types: ["car", "two-wheeler"]
+
+  # Far left (southwest) — matches image "Sports & Recreation Lot"
+  - parking_lot_id: vitap-lot-sports
+    name: "Sports & Recreation Lot"
+    latitude: 16.4910
+    longitude: 80.4953
+    zone: "sports_zone"
+    boundary_polygon: "POLYGON((16.490500 80.494800, 16.491500 80.494800, 16.491500 80.495800, 16.490500 80.495800, 16.490500 80.494800))"
+    total_capacity: 100
+    usable_capacity: 84
+    reserved_capacity: 7
+    restricted_capacity: 3
+    temporarily_unavailable_capacity: 6
+    status: open
+    metadata:
+      lot_type: "event_and_sports"
+      access_level: "all"
+      vehicle_types: ["car", "two-wheeler"]
+
+  # Lower center-right — matches image "Hostel Zone Parking"
+  - parking_lot_id: vitap-lot-hostel
+    name: "Hostel Zone Parking"
+    latitude: 16.4910
+    longitude: 80.5016
+    zone: "hostel_zone"
+    boundary_polygon: "POLYGON((16.490500 80.501100, 16.491500 80.501100, 16.491500 80.502100, 16.490500 80.502100, 16.490500 80.501100))"
+    total_capacity: 180
+    usable_capacity: 162
+    reserved_capacity: 12
+    restricted_capacity: 6
+    temporarily_unavailable_capacity: 0
+    status: open
+    metadata:
+      lot_type: "student_residents"
+      access_level: "hostel_students"
+      vehicle_types: ["car", "two-wheeler"]
+
 # =====================================================
-# DESTINATIONS (11 buildings + 2 new ones for completeness)
+# DESTINATIONS — all 17 buildings from real campus map
+# 4 new ones added: AP-2, MH-4, MH-5, LH-2
 # =====================================================
 destinations:
-  # Academic blocks
+  # Academic Blocks (upper right quadrant in real map)
   - destination_id: vitap-osm-1485919486
     name: "AB-1"
     category: academic_block
-    latitude: 16.495673
-    longitude: 80.500528
+    latitude: 16.4948
+    longitude: 80.5014
     nearest_gate_ids: [vitap-gate-main, vitap-gate-visitor]
-    nearest_parking_lot_ids: [vitap-lot-academic-main, vitap-lot-admin-visitor]
+    nearest_parking_lot_ids: [vitap-lot-admin-visitor, vitap-lot-academic-main]
     metadata:
       building_type: "academic"
       departments: ["CSE", "ECE"]
@@ -163,144 +164,34 @@ destinations:
   - destination_id: vitap-osm-750542242
     name: "AB-2"
     category: academic_block
-    latitude: 16.49562
-    longitude: 80.498022
-    nearest_gate_ids: [vitap-gate-main, vitap-gate-visitor]
+    latitude: 16.4947
+    longitude: 80.4981
+    nearest_gate_ids: [vitap-gate-main]
     nearest_parking_lot_ids: [vitap-lot-academic-main, vitap-lot-admin-visitor]
     metadata:
       building_type: "academic"
       departments: ["Mechanical", "Civil"]
       avg_occupancy: 1200
 
-  # Central administrative building
-  - destination_id: vitap-osm-1255690439
-    name: "CB"
-    category: administrative_building
-    latitude: 16.494387
-    longitude: 80.499217
-    nearest_gate_ids: [vitap-gate-main, vitap-gate-visitor]
-    nearest_parking_lot_ids: [vitap-lot-admin-visitor, vitap-lot-academic-main]
-    metadata:
-      building_type: "administrative"
-      services: ["registrar", "admin_office"]
-      avg_occupancy: 400
-
-  # Cafeterias
-  - destination_id: vitap-osm-1321555307
-    name: "Food Street"
-    category: cafeteria
-    latitude: 16.493761
-    longitude: 80.49839
+  # AP-2 block (upper left area, near AB-2)
+  - destination_id: vitap-osm-ap2-001
+    name: "AP-2"
+    category: academic_block
+    latitude: 16.4945
+    longitude: 80.4960
     nearest_gate_ids: [vitap-gate-main]
-    nearest_parking_lot_ids: [vitap-lot-hostel, vitap-lot-academic-main]
+    nearest_parking_lot_ids: [vitap-lot-academic-main, vitap-lot-sports]
     metadata:
-      building_type: "food_service"
-      services: ["cafeteria", "food_court"]
+      building_type: "academic"
+      departments: ["Architecture", "Planning"]
       avg_occupancy: 800
 
-  # Hostels
-  - destination_id: vitap-osm-1434460208
-    name: "MH-1"
-    category: hostel
-    latitude: 16.494185
-    longitude: 80.500627
-    nearest_gate_ids: [vitap-gate-main]
-    nearest_parking_lot_ids: [vitap-lot-hostel, vitap-lot-academic-main]
-    metadata:
-      building_type: "hostel"
-      capacity: 300
-      avg_occupancy: 250
-
-  - destination_id: vitap-osm-1434460210
-    name: "MH-2"
-    category: hostel
-    latitude: 16.49355
-    longitude: 80.501323
-    nearest_gate_ids: [vitap-gate-main]
-    nearest_parking_lot_ids: [vitap-lot-hostel]
-    metadata:
-      building_type: "hostel"
-      capacity: 280
-      avg_occupancy: 240
-
-  - destination_id: vitap-osm-1434908865
-    name: "MH-2 Food Store"
-    category: cafeteria
-    latitude: 16.493774
-    longitude: 80.500964
-    nearest_gate_ids: [vitap-gate-main]
-    nearest_parking_lot_ids: [vitap-lot-hostel, vitap-lot-academic-main]
-    metadata:
-      building_type: "food_service"
-      services: ["convenience_store"]
-      avg_occupancy: 200
-
-  - destination_id: vitap-osm-1434460214
-    name: "MH-3"
-    category: hostel
-    latitude: 16.492118
-    longitude: 80.501363
-    nearest_gate_ids: [vitap-gate-main]
-    nearest_parking_lot_ids: [vitap-lot-hostel]
-    metadata:
-      building_type: "hostel"
-      capacity: 250
-      avg_occupancy: 220
-
-  - destination_id: vitap-osm-1434890457
-    name: "MH-6"
-    category: hostel
-    latitude: 16.491991
-    longitude: 80.499746
-    nearest_gate_ids: [vitap-gate-main]
-    nearest_parking_lot_ids: [vitap-lot-hostel, vitap-lot-overflow]
-    metadata:
-      building_type: "hostel"
-      capacity: 300
-      avg_occupancy: 270
-
-  - destination_id: vitap-osm-1485935404
-    name: "MH-7"
-    category: hostel
-    latitude: 16.49268
-    longitude: 80.500436
-    nearest_gate_ids: [vitap-gate-main]
-    nearest_parking_lot_ids: [vitap-lot-hostel, vitap-lot-academic-main]
-    metadata:
-      building_type: "hostel"
-      capacity: 270
-      avg_occupancy: 240
-
-  - destination_id: vitap-osm-1485935405
-    name: "LH-1"
-    category: hostel
-    latitude: 16.49197
-    longitude: 80.496657
-    nearest_gate_ids: [vitap-gate-visitor, vitap-gate-main]
-    nearest_parking_lot_ids: [vitap-lot-overflow, vitap-lot-hostel]
-    metadata:
-      building_type: "hostel"
-      capacity: 320
-      avg_occupancy: 300
-
-  # Additional important buildings
-  - destination_id: vitap-lib-001
-    name: "Library"
-    category: academic_facility
-    latitude: 16.493200
-    longitude: 80.500200
-    nearest_gate_ids: [vitap-gate-main, vitap-gate-visitor]
-    nearest_parking_lot_ids: [vitap-lot-academic-main, vitap-lot-admin-visitor]
-    metadata:
-      building_type: "academic_support"
-      services: ["library"]
-      avg_occupancy: 600
-
+  # Sports Complex (left-center, with gym/sports icons in real map)
   - destination_id: vitap-gym-001
     name: "Sports Complex"
     category: sports_facility
-    latitude: 16.495700
-    longitude: 80.498800
+    latitude: 16.4934
+    longitude: 80.4978
     nearest_gate_ids: [vitap-gate-main]
     nearest_parking_lot_ids: [vitap-lot-sports, vitap-lot-academic-main]
     metadata:
@@ -308,436 +199,810 @@ destinations:
       services: ["gym", "sports_center"]
       avg_occupancy: 400
 
+  # CB — Central Block, center of circular road
+  - destination_id: vitap-osm-1255690439
+    name: "CB"
+    category: administrative_building
+    latitude: 16.4926
+    longitude: 80.4992
+    nearest_gate_ids: [vitap-gate-main, vitap-gate-visitor]
+    nearest_parking_lot_ids: [vitap-lot-admin-visitor, vitap-lot-academic-main]
+    metadata:
+      building_type: "administrative"
+      services: ["registrar", "admin_office"]
+      avg_occupancy: 400
+
+  # Library (center area, slightly east of CB)
+  - destination_id: vitap-lib-001
+    name: "Library"
+    category: academic_facility
+    latitude: 16.4924
+    longitude: 80.4998
+    nearest_gate_ids: [vitap-gate-main, vitap-gate-visitor]
+    nearest_parking_lot_ids: [vitap-lot-academic-main, vitap-lot-admin-visitor]
+    metadata:
+      building_type: "academic_support"
+      services: ["library"]
+      avg_occupancy: 600
+
+  # Food Street (center, lower — visible in real map with fork icon)
+  - destination_id: vitap-osm-1321555307
+    name: "Food Street"
+    category: cafeteria
+    latitude: 16.4920
+    longitude: 80.4986
+    nearest_gate_ids: [vitap-gate-main]
+    nearest_parking_lot_ids: [vitap-lot-hostel, vitap-lot-academic-main]
+    metadata:
+      building_type: "food_service"
+      services: ["cafeteria", "food_court"]
+      avg_occupancy: 800
+
+  # MH-1 (right area, upper — first men's hostel visible in real map)
+  - destination_id: vitap-osm-1434460208
+    name: "MH-1"
+    category: hostel
+    latitude: 16.4926
+    longitude: 80.5014
+    nearest_gate_ids: [vitap-gate-visitor, vitap-gate-main]
+    nearest_parking_lot_ids: [vitap-lot-hostel, vitap-lot-admin-visitor]
+    metadata:
+      building_type: "hostel"
+      capacity: 300
+      avg_occupancy: 250
+
+  # MH-5 (right area, near MH-1 — visible in real map)
+  - destination_id: vitap-osm-mh5-001
+    name: "MH-5"
+    category: hostel
+    latitude: 16.4924
+    longitude: 80.5018
+    nearest_gate_ids: [vitap-gate-visitor]
+    nearest_parking_lot_ids: [vitap-lot-hostel, vitap-lot-admin-visitor]
+    metadata:
+      building_type: "hostel"
+      capacity: 280
+      avg_occupancy: 250
+
+  # MH-2 Food Store (right, between MH-1 and MH-2)
+  - destination_id: vitap-osm-1434908865
+    name: "MH-2 Food Store"
+    category: cafeteria
+    latitude: 16.4919
+    longitude: 80.5022
+    nearest_gate_ids: [vitap-gate-visitor]
+    nearest_parking_lot_ids: [vitap-lot-hostel, vitap-lot-academic-main]
+    metadata:
+      building_type: "food_service"
+      services: ["convenience_store"]
+      avg_occupancy: 200
+
+  # MH-2 (right middle — visible in real map)
+  - destination_id: vitap-osm-1434460210
+    name: "MH-2"
+    category: hostel
+    latitude: 16.4916
+    longitude: 80.5024
+    nearest_gate_ids: [vitap-gate-visitor]
+    nearest_parking_lot_ids: [vitap-lot-hostel]
+    metadata:
+      building_type: "hostel"
+      capacity: 280
+      avg_occupancy: 240
+
+  # MH-7 (right center lower)
+  - destination_id: vitap-osm-1485935404
+    name: "MH-7"
+    category: hostel
+    latitude: 16.4904
+    longitude: 80.5016
+    nearest_gate_ids: [vitap-gate-visitor]
+    nearest_parking_lot_ids: [vitap-lot-hostel]
+    metadata:
+      building_type: "hostel"
+      capacity: 270
+      avg_occupancy: 240
+
+  # MH-3 (lower right — visible in real map)
+  - destination_id: vitap-osm-1434460214
+    name: "MH-3"
+    category: hostel
+    latitude: 16.4901
+    longitude: 80.5025
+    nearest_gate_ids: [vitap-gate-visitor]
+    nearest_parking_lot_ids: [vitap-lot-hostel]
+    metadata:
+      building_type: "hostel"
+      capacity: 250
+      avg_occupancy: 220
+
+  # MH-4 (lower right, below MH-3 — visible in real map)
+  - destination_id: vitap-osm-mh4-001
+    name: "MH-4"
+    category: hostel
+    latitude: 16.4895
+    longitude: 80.5022
+    nearest_gate_ids: [vitap-gate-visitor]
+    nearest_parking_lot_ids: [vitap-lot-hostel]
+    metadata:
+      building_type: "hostel"
+      capacity: 270
+      avg_occupancy: 240
+
+  # MH-6 (lower right center)
+  - destination_id: vitap-osm-1434890457
+    name: "MH-6"
+    category: hostel
+    latitude: 16.4896
+    longitude: 80.5017
+    nearest_gate_ids: [vitap-gate-visitor]
+    nearest_parking_lot_ids: [vitap-lot-hostel, vitap-lot-overflow]
+    metadata:
+      building_type: "hostel"
+      capacity: 300
+      avg_occupancy: 270
+
+  # LH-1 (lower left — visible in real map, ladies hostel)
+  - destination_id: vitap-osm-1485935405
+    name: "LH-1"
+    category: hostel
+    latitude: 16.4895
+    longitude: 80.4966
+    nearest_gate_ids: [vitap-gate-main]
+    nearest_parking_lot_ids: [vitap-lot-sports, vitap-lot-hostel]
+    metadata:
+      building_type: "hostel"
+      capacity: 320
+      avg_occupancy: 300
+
+  # LH-2 (lower left, below LH-1 — visible in real map)
+  - destination_id: vitap-osm-lh2-001
+    name: "LH-2"
+    category: hostel
+    latitude: 16.4891
+    longitude: 80.4975
+    nearest_gate_ids: [vitap-gate-main]
+    nearest_parking_lot_ids: [vitap-lot-sports, vitap-lot-hostel]
+    metadata:
+      building_type: "hostel"
+      capacity: 300
+      avg_occupancy: 270
+
 # =====================================================
-# ROADS - Complete network with bidirectional travel
-# Vehicle speed assumption: 5 m/s (18 km/h campus speed)
+# ROADS — geometries trace actual campus roads from image
+# Drive roads connect gates to parking lots (is_driveable: true)
+# Walk roads connect lots to destinations (is_walkable: true, is_driveable: false)
 # =====================================================
 roads:
-  # Gate to parking lot connections
-  - road_id: vitap-road-main-gate-to-academic-lot
-    name: "Main Gate to Academic Lot"
+  # ----- DRIVEABLE ROADS (Gate → Parking Lot) -----
+
+  # Main Gate → Overflow Parking (short road east along top)
+  - road_id: vitap-road-main-gate-to-overflow
+    name: "Main Gate to Overflow Parking"
     start_node_id: vitap-gate-main
-    end_node_id: vitap-lot-academic-main
-    length_meters: 450
-    expected_travel_time_seconds: 90
-    is_walkable: true
-    is_driveable: true
-    status: open
-    geometry:
-      - { lat: 16.4911715, lng: 80.5018052 }
-      - { lat: 16.492335, lng: 80.500652 }
-      - { lat: 16.493500, lng: 80.499500 }
-
-  - road_id: vitap-road-main-gate-to-hostel-lot
-    name: "Main Gate to Hostel Lot"
-    start_node_id: vitap-gate-main
-    end_node_id: vitap-lot-hostel
-    length_meters: 380
-    expected_travel_time_seconds: 76
-    is_walkable: true
-    is_driveable: true
-    status: open
-    geometry:
-      - { lat: 16.4911715, lng: 80.5018052 }
-      - { lat: 16.491835, lng: 80.501204 }
-      - { lat: 16.491500, lng: 80.500800 }
-
-  - road_id: vitap-road-main-gate-to-admin-lot
-    name: "Main Gate to Admin Lot"
-    start_node_id: vitap-gate-main
-    end_node_id: vitap-lot-admin-visitor
-    length_meters: 520
-    expected_travel_time_seconds: 104
-    is_walkable: true
-    is_driveable: true
-    status: open
-    geometry:
-      - { lat: 16.4911715, lng: 80.5018052 }
-      - { lat: 16.492835, lng: 80.499176 }
-      - { lat: 16.492800, lng: 80.498200 }
-
-  - road_id: vitap-road-visitor-gate-to-admin-lot
-    name: "Alternative Gate to Admin Lot"
-    start_node_id: vitap-gate-visitor
-    end_node_id: vitap-lot-admin-visitor
-    length_meters: 330
-    expected_travel_time_seconds: 66
-    is_walkable: true
-    is_driveable: true
-    status: open
-    geometry:
-      - { lat: 16.4930000, lng: 80.5028000 }
-      - { lat: 16.492900, lng: 80.500500 }
-      - { lat: 16.492800, lng: 80.498200 }
-
-  - road_id: vitap-road-visitor-gate-to-academic-lot
-    name: "Alternative Gate to Academic Lot"
-    start_node_id: vitap-gate-visitor
-    end_node_id: vitap-lot-academic-main
+    end_node_id: vitap-lot-overflow
     length_meters: 220
     expected_travel_time_seconds: 44
     is_walkable: true
     is_driveable: true
     status: open
     geometry:
-      - { lat: 16.4930000, lng: 80.5028000 }
-      - { lat: 16.493200, lng: 80.501150 }
-      - { lat: 16.493500, lng: 80.499500 }
+      - { lat: 16.4961, lng: 80.4991 }
+      - { lat: 16.4959, lng: 80.4999 }
+      - { lat: 16.4957, lng: 80.5008 }
 
-  - road_id: vitap-road-visitor-gate-to-overflow-lot
-    name: "Alternative Gate to Overflow Lot"
-    start_node_id: vitap-gate-visitor
-    end_node_id: vitap-lot-overflow
-    length_meters: 600
-    expected_travel_time_seconds: 120
+  # Main Gate → Admin & Visitor Lot (south then east)
+  - road_id: vitap-road-main-gate-to-admin-lot
+    name: "Main Gate to Admin Lot"
+    start_node_id: vitap-gate-main
+    end_node_id: vitap-lot-admin-visitor
+    length_meters: 480
+    expected_travel_time_seconds: 96
     is_walkable: true
     is_driveable: true
     status: open
     geometry:
-      - { lat: 16.4930000, lng: 80.5028000 }
-      - { lat: 16.491500, lng: 80.500000 }
-      - { lat: 16.490000, lng: 80.497000 }
+      - { lat: 16.4961, lng: 80.4991 }
+      - { lat: 16.4950, lng: 80.4991 }
+      - { lat: 16.4944, lng: 80.5003 }
+      - { lat: 16.4937, lng: 80.5015 }
 
-  # Fix 4: Sports lot was unreachable by car from any gate. Added driveable road.
-  # ScenarioValidator only checks entity existence (not graph connectivity), so no error was raised.
+  # Main Gate → Academic Block Main Lot (south → east along campus ring)
+  - road_id: vitap-road-main-gate-to-academic-lot
+    name: "Main Gate to Academic Lot"
+    start_node_id: vitap-gate-main
+    end_node_id: vitap-lot-academic-main
+    length_meters: 620
+    expected_travel_time_seconds: 124
+    is_walkable: true
+    is_driveable: true
+    status: open
+    geometry:
+      - { lat: 16.4961, lng: 80.4991 }
+      - { lat: 16.4950, lng: 80.4991 }
+      - { lat: 16.4940, lng: 80.5000 }
+      - { lat: 16.4935, lng: 80.5012 }
+      - { lat: 16.4930, lng: 80.5023 }
+
+  # Main Gate → Hostel Zone Parking (south through campus center)
+  - road_id: vitap-road-main-gate-to-hostel-lot
+    name: "Main Gate to Hostel Lot"
+    start_node_id: vitap-gate-main
+    end_node_id: vitap-lot-hostel
+    length_meters: 720
+    expected_travel_time_seconds: 144
+    is_walkable: true
+    is_driveable: true
+    status: open
+    geometry:
+      - { lat: 16.4961, lng: 80.4991 }
+      - { lat: 16.4945, lng: 80.4991 }
+      - { lat: 16.4930, lng: 80.4997 }
+      - { lat: 16.4920, lng: 80.5008 }
+      - { lat: 16.4910, lng: 80.5016 }
+
+  # Main Gate → Sports & Recreation Lot (south then southwest)
   - road_id: vitap-road-main-gate-to-sports-lot
     name: "Main Gate to Sports Lot"
     start_node_id: vitap-gate-main
     end_node_id: vitap-lot-sports
-    length_meters: 534
-    expected_travel_time_seconds: 107
+    length_meters: 870
+    expected_travel_time_seconds: 174
     is_walkable: true
     is_driveable: true
     status: open
     geometry:
-      - { lat: 16.4911715, lng: 80.5018052 }
-      - { lat: 16.493186, lng: 80.500153 }
-      - { lat: 16.495200, lng: 80.499000 }
+      - { lat: 16.4961, lng: 80.4991 }
+      - { lat: 16.4945, lng: 80.4985 }
+      - { lat: 16.4930, lng: 80.4975 }
+      - { lat: 16.4920, lng: 80.4963 }
+      - { lat: 16.4910, lng: 80.4953 }
 
-  # Academic lot to buildings
+  # Alternative Gate → Academic Block Main Lot (straight west)
+  - road_id: vitap-road-visitor-gate-to-academic-lot
+    name: "Alternative Gate to Academic Lot"
+    start_node_id: vitap-gate-visitor
+    end_node_id: vitap-lot-academic-main
+    length_meters: 130
+    expected_travel_time_seconds: 26
+    is_walkable: true
+    is_driveable: true
+    status: open
+    geometry:
+      - { lat: 16.4930, lng: 80.5035 }
+      - { lat: 16.4930, lng: 80.5029 }
+      - { lat: 16.4930, lng: 80.5023 }
+
+  # Alternative Gate → Admin & Visitor Lot (north-west)
+  - road_id: vitap-road-visitor-gate-to-admin-lot
+    name: "Alternative Gate to Admin Lot"
+    start_node_id: vitap-gate-visitor
+    end_node_id: vitap-lot-admin-visitor
+    length_meters: 280
+    expected_travel_time_seconds: 56
+    is_walkable: true
+    is_driveable: true
+    status: open
+    geometry:
+      - { lat: 16.4930, lng: 80.5035 }
+      - { lat: 16.4933, lng: 80.5025 }
+      - { lat: 16.4937, lng: 80.5015 }
+
+  # Alternative Gate → Hostel Zone Parking (south then west)
+  - road_id: vitap-road-visitor-gate-to-hostel-lot
+    name: "Alternative Gate to Hostel Lot"
+    start_node_id: vitap-gate-visitor
+    end_node_id: vitap-lot-hostel
+    length_meters: 320
+    expected_travel_time_seconds: 64
+    is_walkable: true
+    is_driveable: true
+    status: open
+    geometry:
+      - { lat: 16.4930, lng: 80.5035 }
+      - { lat: 16.4920, lng: 80.5026 }
+      - { lat: 16.4910, lng: 80.5016 }
+
+  # Alternative Gate → Overflow Parking (north-west along top road)
+  - road_id: vitap-road-visitor-gate-to-overflow
+    name: "Alternative Gate to Overflow Parking"
+    start_node_id: vitap-gate-visitor
+    end_node_id: vitap-lot-overflow
+    length_meters: 420
+    expected_travel_time_seconds: 84
+    is_walkable: true
+    is_driveable: true
+    status: open
+    geometry:
+      - { lat: 16.4930, lng: 80.5035 }
+      - { lat: 16.4944, lng: 80.5022 }
+      - { lat: 16.4957, lng: 80.5008 }
+
+  # ----- WALKABLE ROADS (Parking Lot → Destination) -----
+
+  # Overflow Lot → AB-1 (walk south to academic area)
+  - road_id: vitap-road-overflow-to-ab1
+    name: "Overflow Lot to AB-1"
+    start_node_id: vitap-lot-overflow
+    end_node_id: vitap-osm-1485919486
+    length_meters: 110
+    expected_travel_time_seconds: 88
+    is_walkable: true
+    is_driveable: false
+    status: open
+    geometry:
+      - { lat: 16.4957, lng: 80.5008 }
+      - { lat: 16.4952, lng: 80.5011 }
+      - { lat: 16.4948, lng: 80.5014 }
+
+  # Overflow Lot → AB-2
+  - road_id: vitap-road-overflow-to-ab2
+    name: "Overflow Lot to AB-2"
+    start_node_id: vitap-lot-overflow
+    end_node_id: vitap-osm-750542242
+    length_meters: 220
+    expected_travel_time_seconds: 176
+    is_walkable: true
+    is_driveable: false
+    status: open
+    geometry:
+      - { lat: 16.4957, lng: 80.5008 }
+      - { lat: 16.4952, lng: 80.4995 }
+      - { lat: 16.4947, lng: 80.4981 }
+
+  # Admin Lot → AB-1 (north-west walk)
+  - road_id: vitap-road-admin-lot-to-ab1
+    name: "Admin Lot to AB-1"
+    start_node_id: vitap-lot-admin-visitor
+    end_node_id: vitap-osm-1485919486
+    length_meters: 130
+    expected_travel_time_seconds: 104
+    is_walkable: true
+    is_driveable: false
+    status: open
+    geometry:
+      - { lat: 16.4937, lng: 80.5015 }
+      - { lat: 16.4942, lng: 80.5014 }
+      - { lat: 16.4948, lng: 80.5014 }
+
+  # Admin Lot → CB
+  - road_id: vitap-road-admin-lot-to-cb
+    name: "Admin Lot to CB"
+    start_node_id: vitap-lot-admin-visitor
+    end_node_id: vitap-osm-1255690439
+    length_meters: 200
+    expected_travel_time_seconds: 160
+    is_walkable: true
+    is_driveable: false
+    status: open
+    geometry:
+      - { lat: 16.4937, lng: 80.5015 }
+      - { lat: 16.4931, lng: 80.5004 }
+      - { lat: 16.4926, lng: 80.4992 }
+
+  # Admin Lot → Library
+  - road_id: vitap-road-admin-lot-to-library
+    name: "Admin Lot to Library"
+    start_node_id: vitap-lot-admin-visitor
+    end_node_id: vitap-lib-001
+    length_meters: 180
+    expected_travel_time_seconds: 144
+    is_walkable: true
+    is_driveable: false
+    status: open
+    geometry:
+      - { lat: 16.4937, lng: 80.5015 }
+      - { lat: 16.4930, lng: 80.5006 }
+      - { lat: 16.4924, lng: 80.4998 }
+
+  # Admin Lot → MH-1
+  - road_id: vitap-road-admin-lot-to-mh1
+    name: "Admin Lot to MH-1"
+    start_node_id: vitap-lot-admin-visitor
+    end_node_id: vitap-osm-1434460208
+    length_meters: 140
+    expected_travel_time_seconds: 112
+    is_walkable: true
+    is_driveable: false
+    status: open
+    geometry:
+      - { lat: 16.4937, lng: 80.5015 }
+      - { lat: 16.4931, lng: 80.5014 }
+      - { lat: 16.4926, lng: 80.5014 }
+
+  # Academic Lot → AB-1 (walk north-west)
   - road_id: vitap-road-academic-lot-to-ab1
     name: "Academic Lot to AB-1"
     start_node_id: vitap-lot-academic-main
     end_node_id: vitap-osm-1485919486
-    length_meters: 240
-    expected_travel_time_seconds: 48
+    length_meters: 200
+    expected_travel_time_seconds: 160
     is_walkable: true
     is_driveable: false
     status: open
     geometry:
-      - { lat: 16.493500, lng: 80.499500 }
-      - { lat: 16.494586, lng: 80.500014 }
-      - { lat: 16.495673, lng: 80.500528 }
+      - { lat: 16.4930, lng: 80.5023 }
+      - { lat: 16.4939, lng: 80.5018 }
+      - { lat: 16.4948, lng: 80.5014 }
 
+  # Academic Lot → AB-2
   - road_id: vitap-road-academic-lot-to-ab2
     name: "Academic Lot to AB-2"
     start_node_id: vitap-lot-academic-main
     end_node_id: vitap-osm-750542242
-    length_meters: 280
-    expected_travel_time_seconds: 56
+    length_meters: 310
+    expected_travel_time_seconds: 248
     is_walkable: true
     is_driveable: false
     status: open
     geometry:
-      - { lat: 16.493500, lng: 80.499500 }
-      - { lat: 16.494450, lng: 80.498761 }
-      - { lat: 16.49562, lng: 80.498022 }
+      - { lat: 16.4930, lng: 80.5023 }
+      - { lat: 16.4938, lng: 80.5002 }
+      - { lat: 16.4947, lng: 80.4981 }
 
+  # Academic Lot → AP-2
+  - road_id: vitap-road-academic-lot-to-ap2
+    name: "Academic Lot to AP-2"
+    start_node_id: vitap-lot-academic-main
+    end_node_id: vitap-osm-ap2-001
+    length_meters: 380
+    expected_travel_time_seconds: 304
+    is_walkable: true
+    is_driveable: false
+    status: open
+    geometry:
+      - { lat: 16.4930, lng: 80.5023 }
+      - { lat: 16.4937, lng: 80.4991 }
+      - { lat: 16.4945, lng: 80.4960 }
+
+  # Academic Lot → CB
   - road_id: vitap-road-academic-lot-to-cb
     name: "Academic Lot to CB"
     start_node_id: vitap-lot-academic-main
     end_node_id: vitap-osm-1255690439
-    length_meters: 160
-    expected_travel_time_seconds: 32
+    length_meters: 175
+    expected_travel_time_seconds: 140
     is_walkable: true
     is_driveable: false
     status: open
     geometry:
-      - { lat: 16.493500, lng: 80.499500 }
-      - { lat: 16.493943, lng: 80.499358 }
-      - { lat: 16.494387, lng: 80.499217 }
+      - { lat: 16.4930, lng: 80.5023 }
+      - { lat: 16.4928, lng: 80.5007 }
+      - { lat: 16.4926, lng: 80.4992 }
 
+  # Academic Lot → Library
   - road_id: vitap-road-academic-lot-to-library
     name: "Academic Lot to Library"
     start_node_id: vitap-lot-academic-main
     end_node_id: vitap-lib-001
-    length_meters: 120
-    expected_travel_time_seconds: 24
+    length_meters: 140
+    expected_travel_time_seconds: 112
     is_walkable: true
     is_driveable: false
     status: open
     geometry:
-      - { lat: 16.493500, lng: 80.499500 }
-      - { lat: 16.493350, lng: 80.499850 }
-      - { lat: 16.493200, lng: 80.500200 }
+      - { lat: 16.4930, lng: 80.5023 }
+      - { lat: 16.4927, lng: 80.5010 }
+      - { lat: 16.4924, lng: 80.4998 }
 
+  # Academic Lot → Sports Complex
   - road_id: vitap-road-academic-lot-to-sports
     name: "Academic Lot to Sports Complex"
     start_node_id: vitap-lot-academic-main
     end_node_id: vitap-gym-001
+    length_meters: 360
+    expected_travel_time_seconds: 288
+    is_walkable: true
+    is_driveable: false
+    status: open
+    geometry:
+      - { lat: 16.4930, lng: 80.5023 }
+      - { lat: 16.4932, lng: 80.5000 }
+      - { lat: 16.4934, lng: 80.4978 }
+
+  # Academic Lot → MH-1
+  - road_id: vitap-road-academic-lot-to-mh1
+    name: "Academic Lot to MH-1"
+    start_node_id: vitap-lot-academic-main
+    end_node_id: vitap-osm-1434460208
+    length_meters: 50
+    expected_travel_time_seconds: 40
+    is_walkable: true
+    is_driveable: false
+    status: open
+    geometry:
+      - { lat: 16.4930, lng: 80.5023 }
+      - { lat: 16.4928, lng: 80.5018 }
+      - { lat: 16.4926, lng: 80.5014 }
+
+  # Sports Lot → Sports Complex (short walk)
+  - road_id: vitap-road-sports-lot-to-sports
+    name: "Sports Lot to Sports Complex"
+    start_node_id: vitap-lot-sports
+    end_node_id: vitap-gym-001
+    length_meters: 280
+    expected_travel_time_seconds: 224
+    is_walkable: true
+    is_driveable: false
+    status: open
+    geometry:
+      - { lat: 16.4910, lng: 80.4953 }
+      - { lat: 16.4922, lng: 80.4965 }
+      - { lat: 16.4934, lng: 80.4978 }
+
+  # Sports Lot → AB-2
+  - road_id: vitap-road-sports-lot-to-ab2
+    name: "Sports Lot to AB-2"
+    start_node_id: vitap-lot-sports
+    end_node_id: vitap-osm-750542242
+    length_meters: 420
+    expected_travel_time_seconds: 336
+    is_walkable: true
+    is_driveable: false
+    status: open
+    geometry:
+      - { lat: 16.4910, lng: 80.4953 }
+      - { lat: 16.4928, lng: 80.4967 }
+      - { lat: 16.4947, lng: 80.4981 }
+
+  # Sports Lot → AP-2
+  - road_id: vitap-road-sports-lot-to-ap2
+    name: "Sports Lot to AP-2"
+    start_node_id: vitap-lot-sports
+    end_node_id: vitap-osm-ap2-001
     length_meters: 380
+    expected_travel_time_seconds: 304
+    is_walkable: true
+    is_driveable: false
+    status: open
+    geometry:
+      - { lat: 16.4910, lng: 80.4953 }
+      - { lat: 16.4927, lng: 80.4956 }
+      - { lat: 16.4945, lng: 80.4960 }
+
+  # Sports Lot → LH-1
+  - road_id: vitap-road-sports-lot-to-lh1
+    name: "Sports Lot to LH-1"
+    start_node_id: vitap-lot-sports
+    end_node_id: vitap-osm-1485935405
+    length_meters: 180
+    expected_travel_time_seconds: 144
+    is_walkable: true
+    is_driveable: false
+    status: open
+    geometry:
+      - { lat: 16.4910, lng: 80.4953 }
+      - { lat: 16.4902, lng: 80.4959 }
+      - { lat: 16.4895, lng: 80.4966 }
+
+  # Sports Lot → LH-2
+  - road_id: vitap-road-sports-lot-to-lh2
+    name: "Sports Lot to LH-2"
+    start_node_id: vitap-lot-sports
+    end_node_id: vitap-osm-lh2-001
+    length_meters: 250
+    expected_travel_time_seconds: 200
+    is_walkable: true
+    is_driveable: false
+    status: open
+    geometry:
+      - { lat: 16.4910, lng: 80.4953 }
+      - { lat: 16.4900, lng: 80.4964 }
+      - { lat: 16.4891, lng: 80.4975 }
+
+  # Hostel Lot → MH-1
+  - road_id: vitap-road-hostel-lot-to-mh1
+    name: "Hostel Lot to MH-1"
+    start_node_id: vitap-lot-hostel
+    end_node_id: vitap-osm-1434460208
+    length_meters: 200
+    expected_travel_time_seconds: 160
+    is_walkable: true
+    is_driveable: false
+    status: open
+    geometry:
+      - { lat: 16.4910, lng: 80.5016 }
+      - { lat: 16.4918, lng: 80.5015 }
+      - { lat: 16.4926, lng: 80.5014 }
+
+  # Hostel Lot → MH-5
+  - road_id: vitap-road-hostel-lot-to-mh5
+    name: "Hostel Lot to MH-5"
+    start_node_id: vitap-lot-hostel
+    end_node_id: vitap-osm-mh5-001
+    length_meters: 175
+    expected_travel_time_seconds: 140
+    is_walkable: true
+    is_driveable: false
+    status: open
+    geometry:
+      - { lat: 16.4910, lng: 80.5016 }
+      - { lat: 16.4917, lng: 80.5017 }
+      - { lat: 16.4924, lng: 80.5018 }
+
+  # Hostel Lot → MH-2 Food Store
+  - road_id: vitap-road-hostel-lot-to-mh2-food
+    name: "Hostel Lot to MH-2 Food Store"
+    start_node_id: vitap-lot-hostel
+    end_node_id: vitap-osm-1434908865
+    length_meters: 110
+    expected_travel_time_seconds: 88
+    is_walkable: true
+    is_driveable: false
+    status: open
+    geometry:
+      - { lat: 16.4910, lng: 80.5016 }
+      - { lat: 16.4914, lng: 80.5019 }
+      - { lat: 16.4919, lng: 80.5022 }
+
+  # Hostel Lot → MH-2
+  - road_id: vitap-road-hostel-lot-to-mh2
+    name: "Hostel Lot to MH-2"
+    start_node_id: vitap-lot-hostel
+    end_node_id: vitap-osm-1434460210
+    length_meters: 95
     expected_travel_time_seconds: 76
     is_walkable: true
     is_driveable: false
     status: open
     geometry:
-      - { lat: 16.493500, lng: 80.499500 }
-      - { lat: 16.494600, lng: 80.499150 }
-      - { lat: 16.495700, lng: 80.498800 }
+      - { lat: 16.4910, lng: 80.5016 }
+      - { lat: 16.4913, lng: 80.5020 }
+      - { lat: 16.4916, lng: 80.5024 }
 
-  # Hostel lot to hostel buildings
-  - road_id: vitap-road-hostel-lot-to-mh1
-    name: "Hostel Lot to MH-1"
-    start_node_id: vitap-lot-hostel
-    end_node_id: vitap-osm-1434460208
-    length_meters: 140
-    expected_travel_time_seconds: 28
-    is_walkable: true
-    is_driveable: false
-    status: open
-    geometry:
-      - { lat: 16.491500, lng: 80.500800 }
-      - { lat: 16.492842, lng: 80.500713 }
-      - { lat: 16.494185, lng: 80.500627 }
-
-  - road_id: vitap-road-hostel-lot-to-mh2
-    name: "Hostel Lot to MH-2"
-    start_node_id: vitap-lot-hostel
-    end_node_id: vitap-osm-1434460210
-    length_meters: 120
-    expected_travel_time_seconds: 24
-    is_walkable: true
-    is_driveable: false
-    status: open
-    geometry:
-      - { lat: 16.491500, lng: 80.500800 }
-      - { lat: 16.492425, lng: 80.501061 }
-      - { lat: 16.49355, lng: 80.501323 }
-
-  - road_id: vitap-road-hostel-lot-to-mh3
-    name: "Hostel Lot to MH-3"
-    start_node_id: vitap-lot-hostel
-    end_node_id: vitap-osm-1434460214
-    length_meters: 110
-    expected_travel_time_seconds: 22
-    is_walkable: true
-    is_driveable: false
-    status: open
-    geometry:
-      - { lat: 16.491500, lng: 80.500800 }
-      - { lat: 16.491809, lng: 80.501081 }
-      - { lat: 16.492118, lng: 80.501363 }
-
-  - road_id: vitap-road-hostel-lot-to-mh6
-    name: "Hostel Lot to MH-6"
-    start_node_id: vitap-lot-hostel
-    end_node_id: vitap-osm-1434890457
-    length_meters: 140
-    expected_travel_time_seconds: 28
-    is_walkable: true
-    is_driveable: false
-    status: open
-    geometry:
-      - { lat: 16.491500, lng: 80.500800 }
-      - { lat: 16.491745, lng: 80.500273 }
-      - { lat: 16.491991, lng: 80.499746 }
-
+  # Hostel Lot → MH-7
   - road_id: vitap-road-hostel-lot-to-mh7
     name: "Hostel Lot to MH-7"
     start_node_id: vitap-lot-hostel
     end_node_id: vitap-osm-1485935404
-    length_meters: 130
-    expected_travel_time_seconds: 26
+    length_meters: 80
+    expected_travel_time_seconds: 64
     is_walkable: true
     is_driveable: false
     status: open
     geometry:
-      - { lat: 16.491500, lng: 80.500800 }
-      - { lat: 16.491750, lng: 80.500618 }
-      - { lat: 16.49268, lng: 80.500436 }
+      - { lat: 16.4910, lng: 80.5016 }
+      - { lat: 16.4907, lng: 80.5016 }
+      - { lat: 16.4904, lng: 80.5016 }
 
-  - road_id: vitap-road-hostel-lot-to-food-street
-    name: "Hostel Lot to Food Street"
+  # Hostel Lot → MH-3
+  - road_id: vitap-road-hostel-lot-to-mh3
+    name: "Hostel Lot to MH-3"
     start_node_id: vitap-lot-hostel
-    end_node_id: vitap-osm-1321555307
-    length_meters: 180
-    expected_travel_time_seconds: 36
-    is_walkable: true
-    is_driveable: false
-    status: open
-    geometry:
-      - { lat: 16.491500, lng: 80.500800 }
-      - { lat: 16.492630, lng: 80.500095 }
-      - { lat: 16.493761, lng: 80.49839 }
-
-  - road_id: vitap-road-hostel-lot-to-mh2-food
-    name: "Hostel Lot to MH-2 Food Store"
-    start_node_id: vitap-lot-hostel
-    end_node_id: vitap-osm-1434908865
-    length_meters: 100
-    expected_travel_time_seconds: 20
-    is_walkable: true
-    is_driveable: false
-    status: open
-    geometry:
-      - { lat: 16.491500, lng: 80.500800 }
-      - { lat: 16.492637, lng: 80.500882 }
-      - { lat: 16.493774, lng: 80.500964 }
-
-  - road_id: vitap-road-hostel-lot-to-lh1
-    name: "Hostel Lot to LH-1"
-    start_node_id: vitap-lot-hostel
-    end_node_id: vitap-osm-1485935405
-    length_meters: 180
-    expected_travel_time_seconds: 36
-    is_walkable: true
-    is_driveable: false
-    status: open
-    geometry:
-      - { lat: 16.491500, lng: 80.500800 }
-      - { lat: 16.490735, lng: 80.498728 }
-      - { lat: 16.49197, lng: 80.496657 }
-
-  # Admin lot connections
-  - road_id: vitap-road-admin-lot-to-cb
-    name: "Admin Lot to CB"
-    start_node_id: vitap-lot-admin-visitor
-    end_node_id: vitap-osm-1255690439
-    length_meters: 180
-    expected_travel_time_seconds: 36
-    is_walkable: true
-    is_driveable: false
-    status: open
-    geometry:
-      - { lat: 16.492800, lng: 80.498200 }
-      - { lat: 16.493593, lng: 80.498708 }
-      - { lat: 16.494387, lng: 80.499217 }
-
-  - road_id: vitap-road-admin-lot-to-library
-    name: "Admin Lot to Library"
-    start_node_id: vitap-lot-admin-visitor
-    end_node_id: vitap-lib-001
-    length_meters: 160
-    expected_travel_time_seconds: 32
-    is_walkable: true
-    is_driveable: false
-    status: open
-    geometry:
-      - { lat: 16.492800, lng: 80.498200 }
-      - { lat: 16.493000, lng: 80.499200 }
-      - { lat: 16.493200, lng: 80.500200 }
-
-  # Overflow lot connections
-  - road_id: vitap-road-overflow-lot-to-lh1
-    name: "Overflow Lot to LH-1"
-    start_node_id: vitap-lot-overflow
-    end_node_id: vitap-osm-1485935405
-    length_meters: 120
-    expected_travel_time_seconds: 24
-    is_walkable: true
-    is_driveable: false
-    status: open
-    geometry:
-      - { lat: 16.490000, lng: 80.497000 }
-      - { lat: 16.490985, lng: 80.496828 }
-      - { lat: 16.49197, lng: 80.496657 }
-
-  - road_id: vitap-road-overflow-lot-to-mh6
-    name: "Overflow Lot to MH-6"
-    start_node_id: vitap-lot-overflow
-    end_node_id: vitap-osm-1434890457
-    length_meters: 140
-    expected_travel_time_seconds: 28
-    is_walkable: true
-    is_driveable: false
-    status: open
-    geometry:
-      - { lat: 16.490000, lng: 80.497000 }
-      - { lat: 16.490995, lng: 80.498373 }
-      - { lat: 16.491991, lng: 80.499746 }
-
-  # Sports lot connections
-  - road_id: vitap-road-sports-lot-to-sports
-    name: "Sports Lot to Sports Complex"
-    start_node_id: vitap-lot-sports
-    end_node_id: vitap-gym-001
-    length_meters: 100
-    expected_travel_time_seconds: 20
-    is_walkable: true
-    is_driveable: false
-    status: open
-    geometry:
-      - { lat: 16.495200, lng: 80.499000 }
-      - { lat: 16.495450, lng: 80.498900 }
-      - { lat: 16.495700, lng: 80.498800 }
-
-  - road_id: vitap-road-sports-lot-to-ab1
-    name: "Sports Lot to AB-1"
-    start_node_id: vitap-lot-sports
-    end_node_id: vitap-osm-1485919486
-    length_meters: 140
-    expected_travel_time_seconds: 28
-    is_walkable: true
-    is_driveable: false
-    status: open
-    geometry:
-      - { lat: 16.495200, lng: 80.499000 }
-      - { lat: 16.495436, lng: 80.500014 }
-      - { lat: 16.495673, lng: 80.500528 }
-
-  # Inter-building pedestrian connections (no vehicle traffic)
-  - road_id: vitap-road-ab1-to-ab2
-    name: "AB-1 to AB-2 (Pedestrian)"
-    start_node_id: vitap-osm-1485919486
-    end_node_id: vitap-osm-750542242
-    length_meters: 180
-    expected_travel_time_seconds: 180
-    is_walkable: true
-    is_driveable: false
-    status: open
-    geometry:
-      - { lat: 16.495673, lng: 80.500528 }
-      - { lat: 16.495146, lng: 80.499275 }
-      - { lat: 16.49562, lng: 80.498022 }
-
-  - road_id: vitap-road-mh1-to-mh2
-    name: "MH-1 to MH-2 (Pedestrian)"
-    start_node_id: vitap-osm-1434460208
-    end_node_id: vitap-osm-1434460210
-    length_meters: 120
+    end_node_id: vitap-osm-1434460214
+    length_meters: 150
     expected_travel_time_seconds: 120
     is_walkable: true
     is_driveable: false
     status: open
     geometry:
-      - { lat: 16.494185, lng: 80.500627 }
-      - { lat: 16.493867, lng: 80.500975 }
-      - { lat: 16.49355, lng: 80.501323 }
+      - { lat: 16.4910, lng: 80.5016 }
+      - { lat: 16.4905, lng: 80.5020 }
+      - { lat: 16.4901, lng: 80.5025 }
 
-  - road_id: vitap-road-food-street-to-mh2-food
-    name: "Food Street to MH-2 Food (Pedestrian)"
-    start_node_id: vitap-osm-1321555307
-    end_node_id: vitap-osm-1434908865
-    length_meters: 80
-    expected_travel_time_seconds: 80
+  # Hostel Lot → MH-4
+  - road_id: vitap-road-hostel-lot-to-mh4
+    name: "Hostel Lot to MH-4"
+    start_node_id: vitap-lot-hostel
+    end_node_id: vitap-osm-mh4-001
+    length_meters: 210
+    expected_travel_time_seconds: 168
     is_walkable: true
     is_driveable: false
     status: open
     geometry:
-      - { lat: 16.493761, lng: 80.49839 }
-      - { lat: 16.493767, lng: 80.500177 }
-      - { lat: 16.493774, lng: 80.500964 }
+      - { lat: 16.4910, lng: 80.5016 }
+      - { lat: 16.4902, lng: 80.5019 }
+      - { lat: 16.4895, lng: 80.5022 }
+
+  # Hostel Lot → MH-6
+  - road_id: vitap-road-hostel-lot-to-mh6
+    name: "Hostel Lot to MH-6"
+    start_node_id: vitap-lot-hostel
+    end_node_id: vitap-osm-1434890457
+    length_meters: 175
+    expected_travel_time_seconds: 140
+    is_walkable: true
+    is_driveable: false
+    status: open
+    geometry:
+      - { lat: 16.4910, lng: 80.5016 }
+      - { lat: 16.4903, lng: 80.5016 }
+      - { lat: 16.4896, lng: 80.5017 }
+
+  # Hostel Lot → Food Street
+  - road_id: vitap-road-hostel-lot-to-food-street
+    name: "Hostel Lot to Food Street"
+    start_node_id: vitap-lot-hostel
+    end_node_id: vitap-osm-1321555307
+    length_meters: 230
+    expected_travel_time_seconds: 184
+    is_walkable: true
+    is_driveable: false
+    status: open
+    geometry:
+      - { lat: 16.4910, lng: 80.5016 }
+      - { lat: 16.4915, lng: 80.5001 }
+      - { lat: 16.4920, lng: 80.4986 }
+
+  # Hostel Lot → LH-1
+  - road_id: vitap-road-hostel-lot-to-lh1
+    name: "Hostel Lot to LH-1"
+    start_node_id: vitap-lot-hostel
+    end_node_id: vitap-osm-1485935405
+    length_meters: 580
+    expected_travel_time_seconds: 464
+    is_walkable: true
+    is_driveable: false
+    status: open
+    geometry:
+      - { lat: 16.4910, lng: 80.5016 }
+      - { lat: 16.4902, lng: 80.4991 }
+      - { lat: 16.4895, lng: 80.4966 }
+
+  # Hostel Lot → LH-2
+  - road_id: vitap-road-hostel-lot-to-lh2
+    name: "Hostel Lot to LH-2"
+    start_node_id: vitap-lot-hostel
+    end_node_id: vitap-osm-lh2-001
+    length_meters: 640
+    expected_travel_time_seconds: 512
+    is_walkable: true
+    is_driveable: false
+    status: open
+    geometry:
+      - { lat: 16.4910, lng: 80.5016 }
+      - { lat: 16.4900, lng: 80.4995 }
+      - { lat: 16.4891, lng: 80.4975 }
 
 # =====================================================
-# ROUTE GRAPH EDGES (Connectivity for routing)
+# ROUTE GRAPH EDGES
 # =====================================================
 edges:
-  # Gate to parking lots (bidirectional)
+  # Main Gate ↔ Overflow Parking
+  - from_node_id: vitap-gate-main
+    to_node_id: vitap-lot-overflow
+    road_id: vitap-road-main-gate-to-overflow
+    weight_time_seconds: 44
+    weight_distance_meters: 220
+    is_walkable: true
+    is_driveable: true
+    status: open
+
+  - from_node_id: vitap-lot-overflow
+    to_node_id: vitap-gate-main
+    road_id: vitap-road-main-gate-to-overflow
+    weight_time_seconds: 44
+    weight_distance_meters: 220
+    is_walkable: true
+    is_driveable: true
+    status: open
+
+  # Main Gate ↔ Admin & Visitor Lot
+  - from_node_id: vitap-gate-main
+    to_node_id: vitap-lot-admin-visitor
+    road_id: vitap-road-main-gate-to-admin-lot
+    weight_time_seconds: 96
+    weight_distance_meters: 480
+    is_walkable: true
+    is_driveable: true
+    status: open
+
+  - from_node_id: vitap-lot-admin-visitor
+    to_node_id: vitap-gate-main
+    road_id: vitap-road-main-gate-to-admin-lot
+    weight_time_seconds: 96
+    weight_distance_meters: 480
+    is_walkable: true
+    is_driveable: true
+    status: open
+
+  # Main Gate ↔ Academic Block Main Lot
   - from_node_id: vitap-gate-main
     to_node_id: vitap-lot-academic-main
     road_id: vitap-road-main-gate-to-academic-lot
-    weight_time_seconds: 90
-    weight_distance_meters: 450
+    weight_time_seconds: 124
+    weight_distance_meters: 620
     is_walkable: true
     is_driveable: true
     status: open
@@ -745,17 +1010,18 @@ edges:
   - from_node_id: vitap-lot-academic-main
     to_node_id: vitap-gate-main
     road_id: vitap-road-main-gate-to-academic-lot
-    weight_time_seconds: 90
-    weight_distance_meters: 450
+    weight_time_seconds: 124
+    weight_distance_meters: 620
     is_walkable: true
     is_driveable: true
     status: open
 
+  # Main Gate ↔ Hostel Zone Parking
   - from_node_id: vitap-gate-main
     to_node_id: vitap-lot-hostel
     road_id: vitap-road-main-gate-to-hostel-lot
-    weight_time_seconds: 76
-    weight_distance_meters: 380
+    weight_time_seconds: 144
+    weight_distance_meters: 720
     is_walkable: true
     is_driveable: true
     status: open
@@ -763,53 +1029,37 @@ edges:
   - from_node_id: vitap-lot-hostel
     to_node_id: vitap-gate-main
     road_id: vitap-road-main-gate-to-hostel-lot
-    weight_time_seconds: 76
-    weight_distance_meters: 380
+    weight_time_seconds: 144
+    weight_distance_meters: 720
     is_walkable: true
     is_driveable: true
     status: open
 
+  # Main Gate ↔ Sports & Recreation Lot
   - from_node_id: vitap-gate-main
-    to_node_id: vitap-lot-admin-visitor
-    road_id: vitap-road-main-gate-to-admin-lot
-    weight_time_seconds: 104
-    weight_distance_meters: 520
+    to_node_id: vitap-lot-sports
+    road_id: vitap-road-main-gate-to-sports-lot
+    weight_time_seconds: 174
+    weight_distance_meters: 870
     is_walkable: true
     is_driveable: true
     status: open
 
-  - from_node_id: vitap-lot-admin-visitor
+  - from_node_id: vitap-lot-sports
     to_node_id: vitap-gate-main
-    road_id: vitap-road-main-gate-to-admin-lot
-    weight_time_seconds: 104
-    weight_distance_meters: 520
+    road_id: vitap-road-main-gate-to-sports-lot
+    weight_time_seconds: 174
+    weight_distance_meters: 870
     is_walkable: true
     is_driveable: true
     status: open
 
-  - from_node_id: vitap-gate-visitor
-    to_node_id: vitap-lot-admin-visitor
-    road_id: vitap-road-visitor-gate-to-admin-lot
-    weight_time_seconds: 66
-    weight_distance_meters: 330
-    is_walkable: true
-    is_driveable: true
-    status: open
-
-  - from_node_id: vitap-lot-admin-visitor
-    to_node_id: vitap-gate-visitor
-    road_id: vitap-road-visitor-gate-to-admin-lot
-    weight_time_seconds: 66
-    weight_distance_meters: 330
-    is_walkable: true
-    is_driveable: true
-    status: open
-
+  # Alternative Gate ↔ Academic Block Main Lot
   - from_node_id: vitap-gate-visitor
     to_node_id: vitap-lot-academic-main
     road_id: vitap-road-visitor-gate-to-academic-lot
-    weight_time_seconds: 44
-    weight_distance_meters: 220
+    weight_time_seconds: 26
+    weight_distance_meters: 130
     is_walkable: true
     is_driveable: true
     status: open
@@ -817,36 +1067,185 @@ edges:
   - from_node_id: vitap-lot-academic-main
     to_node_id: vitap-gate-visitor
     road_id: vitap-road-visitor-gate-to-academic-lot
-    weight_time_seconds: 44
-    weight_distance_meters: 220
+    weight_time_seconds: 26
+    weight_distance_meters: 130
     is_walkable: true
     is_driveable: true
     status: open
 
+  # Alternative Gate ↔ Admin & Visitor Lot
+  - from_node_id: vitap-gate-visitor
+    to_node_id: vitap-lot-admin-visitor
+    road_id: vitap-road-visitor-gate-to-admin-lot
+    weight_time_seconds: 56
+    weight_distance_meters: 280
+    is_walkable: true
+    is_driveable: true
+    status: open
+
+  - from_node_id: vitap-lot-admin-visitor
+    to_node_id: vitap-gate-visitor
+    road_id: vitap-road-visitor-gate-to-admin-lot
+    weight_time_seconds: 56
+    weight_distance_meters: 280
+    is_walkable: true
+    is_driveable: true
+    status: open
+
+  # Alternative Gate ↔ Hostel Zone Parking
+  - from_node_id: vitap-gate-visitor
+    to_node_id: vitap-lot-hostel
+    road_id: vitap-road-visitor-gate-to-hostel-lot
+    weight_time_seconds: 64
+    weight_distance_meters: 320
+    is_walkable: true
+    is_driveable: true
+    status: open
+
+  - from_node_id: vitap-lot-hostel
+    to_node_id: vitap-gate-visitor
+    road_id: vitap-road-visitor-gate-to-hostel-lot
+    weight_time_seconds: 64
+    weight_distance_meters: 320
+    is_walkable: true
+    is_driveable: true
+    status: open
+
+  # Alternative Gate ↔ Overflow Parking
   - from_node_id: vitap-gate-visitor
     to_node_id: vitap-lot-overflow
-    road_id: vitap-road-visitor-gate-to-overflow-lot
-    weight_time_seconds: 120
-    weight_distance_meters: 600
+    road_id: vitap-road-visitor-gate-to-overflow
+    weight_time_seconds: 84
+    weight_distance_meters: 420
     is_walkable: true
     is_driveable: true
     status: open
 
   - from_node_id: vitap-lot-overflow
     to_node_id: vitap-gate-visitor
-    road_id: vitap-road-visitor-gate-to-overflow-lot
-    weight_time_seconds: 120
-    weight_distance_meters: 600
+    road_id: vitap-road-visitor-gate-to-overflow
+    weight_time_seconds: 84
+    weight_distance_meters: 420
     is_walkable: true
     is_driveable: true
     status: open
 
-  # Parking lots to buildings
+  # Overflow Lot walk edges
+  - from_node_id: vitap-lot-overflow
+    to_node_id: vitap-osm-1485919486
+    road_id: vitap-road-overflow-to-ab1
+    weight_time_seconds: 88
+    weight_distance_meters: 110
+    is_walkable: true
+    is_driveable: false
+    status: open
+
+  - from_node_id: vitap-osm-1485919486
+    to_node_id: vitap-lot-overflow
+    road_id: vitap-road-overflow-to-ab1
+    weight_time_seconds: 88
+    weight_distance_meters: 110
+    is_walkable: true
+    is_driveable: false
+    status: open
+
+  - from_node_id: vitap-lot-overflow
+    to_node_id: vitap-osm-750542242
+    road_id: vitap-road-overflow-to-ab2
+    weight_time_seconds: 176
+    weight_distance_meters: 220
+    is_walkable: true
+    is_driveable: false
+    status: open
+
+  - from_node_id: vitap-osm-750542242
+    to_node_id: vitap-lot-overflow
+    road_id: vitap-road-overflow-to-ab2
+    weight_time_seconds: 176
+    weight_distance_meters: 220
+    is_walkable: true
+    is_driveable: false
+    status: open
+
+  # Admin Lot walk edges
+  - from_node_id: vitap-lot-admin-visitor
+    to_node_id: vitap-osm-1485919486
+    road_id: vitap-road-admin-lot-to-ab1
+    weight_time_seconds: 104
+    weight_distance_meters: 130
+    is_walkable: true
+    is_driveable: false
+    status: open
+
+  - from_node_id: vitap-osm-1485919486
+    to_node_id: vitap-lot-admin-visitor
+    road_id: vitap-road-admin-lot-to-ab1
+    weight_time_seconds: 104
+    weight_distance_meters: 130
+    is_walkable: true
+    is_driveable: false
+    status: open
+
+  - from_node_id: vitap-lot-admin-visitor
+    to_node_id: vitap-osm-1255690439
+    road_id: vitap-road-admin-lot-to-cb
+    weight_time_seconds: 160
+    weight_distance_meters: 200
+    is_walkable: true
+    is_driveable: false
+    status: open
+
+  - from_node_id: vitap-osm-1255690439
+    to_node_id: vitap-lot-admin-visitor
+    road_id: vitap-road-admin-lot-to-cb
+    weight_time_seconds: 160
+    weight_distance_meters: 200
+    is_walkable: true
+    is_driveable: false
+    status: open
+
+  - from_node_id: vitap-lot-admin-visitor
+    to_node_id: vitap-lib-001
+    road_id: vitap-road-admin-lot-to-library
+    weight_time_seconds: 144
+    weight_distance_meters: 180
+    is_walkable: true
+    is_driveable: false
+    status: open
+
+  - from_node_id: vitap-lib-001
+    to_node_id: vitap-lot-admin-visitor
+    road_id: vitap-road-admin-lot-to-library
+    weight_time_seconds: 144
+    weight_distance_meters: 180
+    is_walkable: true
+    is_driveable: false
+    status: open
+
+  - from_node_id: vitap-lot-admin-visitor
+    to_node_id: vitap-osm-1434460208
+    road_id: vitap-road-admin-lot-to-mh1
+    weight_time_seconds: 112
+    weight_distance_meters: 140
+    is_walkable: true
+    is_driveable: false
+    status: open
+
+  - from_node_id: vitap-osm-1434460208
+    to_node_id: vitap-lot-admin-visitor
+    road_id: vitap-road-admin-lot-to-mh1
+    weight_time_seconds: 112
+    weight_distance_meters: 140
+    is_walkable: true
+    is_driveable: false
+    status: open
+
+  # Academic Lot walk edges
   - from_node_id: vitap-lot-academic-main
     to_node_id: vitap-osm-1485919486
     road_id: vitap-road-academic-lot-to-ab1
-    weight_time_seconds: 48
-    weight_distance_meters: 240
+    weight_time_seconds: 160
+    weight_distance_meters: 200
     is_walkable: true
     is_driveable: false
     status: open
@@ -854,8 +1253,8 @@ edges:
   - from_node_id: vitap-osm-1485919486
     to_node_id: vitap-lot-academic-main
     road_id: vitap-road-academic-lot-to-ab1
-    weight_time_seconds: 48
-    weight_distance_meters: 240
+    weight_time_seconds: 160
+    weight_distance_meters: 200
     is_walkable: true
     is_driveable: false
     status: open
@@ -863,8 +1262,8 @@ edges:
   - from_node_id: vitap-lot-academic-main
     to_node_id: vitap-osm-750542242
     road_id: vitap-road-academic-lot-to-ab2
-    weight_time_seconds: 56
-    weight_distance_meters: 280
+    weight_time_seconds: 248
+    weight_distance_meters: 310
     is_walkable: true
     is_driveable: false
     status: open
@@ -872,8 +1271,26 @@ edges:
   - from_node_id: vitap-osm-750542242
     to_node_id: vitap-lot-academic-main
     road_id: vitap-road-academic-lot-to-ab2
-    weight_time_seconds: 56
-    weight_distance_meters: 280
+    weight_time_seconds: 248
+    weight_distance_meters: 310
+    is_walkable: true
+    is_driveable: false
+    status: open
+
+  - from_node_id: vitap-lot-academic-main
+    to_node_id: vitap-osm-ap2-001
+    road_id: vitap-road-academic-lot-to-ap2
+    weight_time_seconds: 304
+    weight_distance_meters: 380
+    is_walkable: true
+    is_driveable: false
+    status: open
+
+  - from_node_id: vitap-osm-ap2-001
+    to_node_id: vitap-lot-academic-main
+    road_id: vitap-road-academic-lot-to-ap2
+    weight_time_seconds: 304
+    weight_distance_meters: 380
     is_walkable: true
     is_driveable: false
     status: open
@@ -881,8 +1298,8 @@ edges:
   - from_node_id: vitap-lot-academic-main
     to_node_id: vitap-osm-1255690439
     road_id: vitap-road-academic-lot-to-cb
-    weight_time_seconds: 32
-    weight_distance_meters: 160
+    weight_time_seconds: 140
+    weight_distance_meters: 175
     is_walkable: true
     is_driveable: false
     status: open
@@ -890,8 +1307,8 @@ edges:
   - from_node_id: vitap-osm-1255690439
     to_node_id: vitap-lot-academic-main
     road_id: vitap-road-academic-lot-to-cb
-    weight_time_seconds: 32
-    weight_distance_meters: 160
+    weight_time_seconds: 140
+    weight_distance_meters: 175
     is_walkable: true
     is_driveable: false
     status: open
@@ -899,8 +1316,8 @@ edges:
   - from_node_id: vitap-lot-academic-main
     to_node_id: vitap-lib-001
     road_id: vitap-road-academic-lot-to-library
-    weight_time_seconds: 24
-    weight_distance_meters: 120
+    weight_time_seconds: 112
+    weight_distance_meters: 140
     is_walkable: true
     is_driveable: false
     status: open
@@ -908,8 +1325,8 @@ edges:
   - from_node_id: vitap-lib-001
     to_node_id: vitap-lot-academic-main
     road_id: vitap-road-academic-lot-to-library
-    weight_time_seconds: 24
-    weight_distance_meters: 120
+    weight_time_seconds: 112
+    weight_distance_meters: 140
     is_walkable: true
     is_driveable: false
     status: open
@@ -917,8 +1334,8 @@ edges:
   - from_node_id: vitap-lot-academic-main
     to_node_id: vitap-gym-001
     road_id: vitap-road-academic-lot-to-sports
-    weight_time_seconds: 76
-    weight_distance_meters: 380
+    weight_time_seconds: 288
+    weight_distance_meters: 360
     is_walkable: true
     is_driveable: false
     status: open
@@ -926,17 +1343,127 @@ edges:
   - from_node_id: vitap-gym-001
     to_node_id: vitap-lot-academic-main
     road_id: vitap-road-academic-lot-to-sports
-    weight_time_seconds: 76
+    weight_time_seconds: 288
+    weight_distance_meters: 360
+    is_walkable: true
+    is_driveable: false
+    status: open
+
+  - from_node_id: vitap-lot-academic-main
+    to_node_id: vitap-osm-1434460208
+    road_id: vitap-road-academic-lot-to-mh1
+    weight_time_seconds: 40
+    weight_distance_meters: 50
+    is_walkable: true
+    is_driveable: false
+    status: open
+
+  - from_node_id: vitap-osm-1434460208
+    to_node_id: vitap-lot-academic-main
+    road_id: vitap-road-academic-lot-to-mh1
+    weight_time_seconds: 40
+    weight_distance_meters: 50
+    is_walkable: true
+    is_driveable: false
+    status: open
+
+  # Sports Lot walk edges
+  - from_node_id: vitap-lot-sports
+    to_node_id: vitap-gym-001
+    road_id: vitap-road-sports-lot-to-sports
+    weight_time_seconds: 224
+    weight_distance_meters: 280
+    is_walkable: true
+    is_driveable: false
+    status: open
+
+  - from_node_id: vitap-gym-001
+    to_node_id: vitap-lot-sports
+    road_id: vitap-road-sports-lot-to-sports
+    weight_time_seconds: 224
+    weight_distance_meters: 280
+    is_walkable: true
+    is_driveable: false
+    status: open
+
+  - from_node_id: vitap-lot-sports
+    to_node_id: vitap-osm-750542242
+    road_id: vitap-road-sports-lot-to-ab2
+    weight_time_seconds: 336
+    weight_distance_meters: 420
+    is_walkable: true
+    is_driveable: false
+    status: open
+
+  - from_node_id: vitap-osm-750542242
+    to_node_id: vitap-lot-sports
+    road_id: vitap-road-sports-lot-to-ab2
+    weight_time_seconds: 336
+    weight_distance_meters: 420
+    is_walkable: true
+    is_driveable: false
+    status: open
+
+  - from_node_id: vitap-lot-sports
+    to_node_id: vitap-osm-ap2-001
+    road_id: vitap-road-sports-lot-to-ap2
+    weight_time_seconds: 304
     weight_distance_meters: 380
     is_walkable: true
     is_driveable: false
     status: open
 
+  - from_node_id: vitap-osm-ap2-001
+    to_node_id: vitap-lot-sports
+    road_id: vitap-road-sports-lot-to-ap2
+    weight_time_seconds: 304
+    weight_distance_meters: 380
+    is_walkable: true
+    is_driveable: false
+    status: open
+
+  - from_node_id: vitap-lot-sports
+    to_node_id: vitap-osm-1485935405
+    road_id: vitap-road-sports-lot-to-lh1
+    weight_time_seconds: 144
+    weight_distance_meters: 180
+    is_walkable: true
+    is_driveable: false
+    status: open
+
+  - from_node_id: vitap-osm-1485935405
+    to_node_id: vitap-lot-sports
+    road_id: vitap-road-sports-lot-to-lh1
+    weight_time_seconds: 144
+    weight_distance_meters: 180
+    is_walkable: true
+    is_driveable: false
+    status: open
+
+  - from_node_id: vitap-lot-sports
+    to_node_id: vitap-osm-lh2-001
+    road_id: vitap-road-sports-lot-to-lh2
+    weight_time_seconds: 200
+    weight_distance_meters: 250
+    is_walkable: true
+    is_driveable: false
+    status: open
+
+  - from_node_id: vitap-osm-lh2-001
+    to_node_id: vitap-lot-sports
+    road_id: vitap-road-sports-lot-to-lh2
+    weight_time_seconds: 200
+    weight_distance_meters: 250
+    is_walkable: true
+    is_driveable: false
+    status: open
+
+  # Hostel Lot walk edges
   - from_node_id: vitap-lot-hostel
     to_node_id: vitap-osm-1434460208
     road_id: vitap-road-hostel-lot-to-mh1
-    weight_time_seconds: 28
-    weight_distance_meters: 140
+    weight_time_seconds: 160
+    weight_distance_meters: 200
     is_walkable: true
     is_driveable: false
     status: open
@@ -944,98 +1471,26 @@ edges:
   - from_node_id: vitap-osm-1434460208
     to_node_id: vitap-lot-hostel
     road_id: vitap-road-hostel-lot-to-mh1
-    weight_time_seconds: 28
-    weight_distance_meters: 140
+    weight_time_seconds: 160
+    weight_distance_meters: 200
     is_walkable: true
     is_driveable: false
     status: open
 
   - from_node_id: vitap-lot-hostel
-    to_node_id: vitap-osm-1434460210
-    road_id: vitap-road-hostel-lot-to-mh2
-    weight_time_seconds: 24
-    weight_distance_meters: 120
+    to_node_id: vitap-osm-mh5-001
+    road_id: vitap-road-hostel-lot-to-mh5
+    weight_time_seconds: 140
+    weight_distance_meters: 175
     is_walkable: true
     is_driveable: false
     status: open
 
-  - from_node_id: vitap-osm-1434460210
+  - from_node_id: vitap-osm-mh5-001
     to_node_id: vitap-lot-hostel
-    road_id: vitap-road-hostel-lot-to-mh2
-    weight_time_seconds: 24
-    weight_distance_meters: 120
-    is_walkable: true
-    is_driveable: false
-    status: open
-
-  - from_node_id: vitap-lot-hostel
-    to_node_id: vitap-osm-1434460214
-    road_id: vitap-road-hostel-lot-to-mh3
-    weight_time_seconds: 22
-    weight_distance_meters: 110
-    is_walkable: true
-    is_driveable: false
-    status: open
-
-  - from_node_id: vitap-osm-1434460214
-    to_node_id: vitap-lot-hostel
-    road_id: vitap-road-hostel-lot-to-mh3
-    weight_time_seconds: 22
-    weight_distance_meters: 110
-    is_walkable: true
-    is_driveable: false
-    status: open
-
-  - from_node_id: vitap-lot-hostel
-    to_node_id: vitap-osm-1434890457
-    road_id: vitap-road-hostel-lot-to-mh6
-    weight_time_seconds: 28
-    weight_distance_meters: 140
-    is_walkable: true
-    is_driveable: false
-    status: open
-
-  - from_node_id: vitap-osm-1434890457
-    to_node_id: vitap-lot-hostel
-    road_id: vitap-road-hostel-lot-to-mh6
-    weight_time_seconds: 28
-    weight_distance_meters: 140
-    is_walkable: true
-    is_driveable: false
-    status: open
-
-  - from_node_id: vitap-lot-hostel
-    to_node_id: vitap-osm-1485935404
-    road_id: vitap-road-hostel-lot-to-mh7
-    weight_time_seconds: 26
-    weight_distance_meters: 130
-    is_walkable: true
-    is_driveable: false
-    status: open
-
-  - from_node_id: vitap-osm-1485935404
-    to_node_id: vitap-lot-hostel
-    road_id: vitap-road-hostel-lot-to-mh7
-    weight_time_seconds: 26
-    weight_distance_meters: 130
-    is_walkable: true
-    is_driveable: false
-    status: open
-
-  - from_node_id: vitap-lot-hostel
-    to_node_id: vitap-osm-1321555307
-    road_id: vitap-road-hostel-lot-to-food-street
-    weight_time_seconds: 36
-    weight_distance_meters: 180
-    is_walkable: true
-    is_driveable: false
-    status: open
-
-  - from_node_id: vitap-osm-1321555307
-    to_node_id: vitap-lot-hostel
-    road_id: vitap-road-hostel-lot-to-food-street
-    weight_time_seconds: 36
-    weight_distance_meters: 180
+    road_id: vitap-road-hostel-lot-to-mh5
+    weight_time_seconds: 140
+    weight_distance_meters: 175
     is_walkable: true
     is_driveable: false
     status: open
@@ -1043,8 +1498,8 @@ edges:
   - from_node_id: vitap-lot-hostel
     to_node_id: vitap-osm-1434908865
     road_id: vitap-road-hostel-lot-to-mh2-food
-    weight_time_seconds: 20
-    weight_distance_meters: 100
+    weight_time_seconds: 88
+    weight_distance_meters: 110
     is_walkable: true
     is_driveable: false
     status: open
@@ -1052,8 +1507,116 @@ edges:
   - from_node_id: vitap-osm-1434908865
     to_node_id: vitap-lot-hostel
     road_id: vitap-road-hostel-lot-to-mh2-food
-    weight_time_seconds: 20
-    weight_distance_meters: 100
+    weight_time_seconds: 88
+    weight_distance_meters: 110
+    is_walkable: true
+    is_driveable: false
+    status: open
+
+  - from_node_id: vitap-lot-hostel
+    to_node_id: vitap-osm-1434460210
+    road_id: vitap-road-hostel-lot-to-mh2
+    weight_time_seconds: 76
+    weight_distance_meters: 95
+    is_walkable: true
+    is_driveable: false
+    status: open
+
+  - from_node_id: vitap-osm-1434460210
+    to_node_id: vitap-lot-hostel
+    road_id: vitap-road-hostel-lot-to-mh2
+    weight_time_seconds: 76
+    weight_distance_meters: 95
+    is_walkable: true
+    is_driveable: false
+    status: open
+
+  - from_node_id: vitap-lot-hostel
+    to_node_id: vitap-osm-1485935404
+    road_id: vitap-road-hostel-lot-to-mh7
+    weight_time_seconds: 64
+    weight_distance_meters: 80
+    is_walkable: true
+    is_driveable: false
+    status: open
+
+  - from_node_id: vitap-osm-1485935404
+    to_node_id: vitap-lot-hostel
+    road_id: vitap-road-hostel-lot-to-mh7
+    weight_time_seconds: 64
+    weight_distance_meters: 80
+    is_walkable: true
+    is_driveable: false
+    status: open
+
+  - from_node_id: vitap-lot-hostel
+    to_node_id: vitap-osm-1434460214
+    road_id: vitap-road-hostel-lot-to-mh3
+    weight_time_seconds: 120
+    weight_distance_meters: 150
+    is_walkable: true
+    is_driveable: false
+    status: open
+
+  - from_node_id: vitap-osm-1434460214
+    to_node_id: vitap-lot-hostel
+    road_id: vitap-road-hostel-lot-to-mh3
+    weight_time_seconds: 120
+    weight_distance_meters: 150
+    is_walkable: true
+    is_driveable: false
+    status: open
+
+  - from_node_id: vitap-lot-hostel
+    to_node_id: vitap-osm-mh4-001
+    road_id: vitap-road-hostel-lot-to-mh4
+    weight_time_seconds: 168
+    weight_distance_meters: 210
+    is_walkable: true
+    is_driveable: false
+    status: open
+
+  - from_node_id: vitap-osm-mh4-001
+    to_node_id: vitap-lot-hostel
+    road_id: vitap-road-hostel-lot-to-mh4
+    weight_time_seconds: 168
+    weight_distance_meters: 210
+    is_walkable: true
+    is_driveable: false
+    status: open
+
+  - from_node_id: vitap-lot-hostel
+    to_node_id: vitap-osm-1434890457
+    road_id: vitap-road-hostel-lot-to-mh6
+    weight_time_seconds: 140
+    weight_distance_meters: 175
+    is_walkable: true
+    is_driveable: false
+    status: open
+
+  - from_node_id: vitap-osm-1434890457
+    to_node_id: vitap-lot-hostel
+    road_id: vitap-road-hostel-lot-to-mh6
+    weight_time_seconds: 140
+    weight_distance_meters: 175
+    is_walkable: true
+    is_driveable: false
+    status: open
+
+  - from_node_id: vitap-lot-hostel
+    to_node_id: vitap-osm-1321555307
+    road_id: vitap-road-hostel-lot-to-food-street
+    weight_time_seconds: 184
+    weight_distance_meters: 230
+    is_walkable: true
+    is_driveable: false
+    status: open
+
+  - from_node_id: vitap-osm-1321555307
+    to_node_id: vitap-lot-hostel
+    road_id: vitap-road-hostel-lot-to-food-street
+    weight_time_seconds: 184
+    weight_distance_meters: 230
     is_walkable: true
     is_driveable: false
     status: open
@@ -1061,8 +1624,8 @@ edges:
   - from_node_id: vitap-lot-hostel
     to_node_id: vitap-osm-1485935405
     road_id: vitap-road-hostel-lot-to-lh1
-    weight_time_seconds: 36
-    weight_distance_meters: 180
+    weight_time_seconds: 464
+    weight_distance_meters: 580
     is_walkable: true
     is_driveable: false
     status: open
@@ -1070,135 +1633,26 @@ edges:
   - from_node_id: vitap-osm-1485935405
     to_node_id: vitap-lot-hostel
     road_id: vitap-road-hostel-lot-to-lh1
-    weight_time_seconds: 36
-    weight_distance_meters: 180
+    weight_time_seconds: 464
+    weight_distance_meters: 580
     is_walkable: true
     is_driveable: false
     status: open
 
-  - from_node_id: vitap-lot-admin-visitor
-    to_node_id: vitap-osm-1255690439
-    road_id: vitap-road-admin-lot-to-cb
-    weight_time_seconds: 36
-    weight_distance_meters: 180
+  - from_node_id: vitap-lot-hostel
+    to_node_id: vitap-osm-lh2-001
+    road_id: vitap-road-hostel-lot-to-lh2
+    weight_time_seconds: 512
+    weight_distance_meters: 640
     is_walkable: true
     is_driveable: false
     status: open
 
-  - from_node_id: vitap-osm-1255690439
-    to_node_id: vitap-lot-admin-visitor
-    road_id: vitap-road-admin-lot-to-cb
-    weight_time_seconds: 36
-    weight_distance_meters: 180
-    is_walkable: true
-    is_driveable: false
-    status: open
-
-  - from_node_id: vitap-lot-admin-visitor
-    to_node_id: vitap-lib-001
-    road_id: vitap-road-admin-lot-to-library
-    weight_time_seconds: 32
-    weight_distance_meters: 160
-    is_walkable: true
-    is_driveable: false
-    status: open
-
-  - from_node_id: vitap-lib-001
-    to_node_id: vitap-lot-admin-visitor
-    road_id: vitap-road-admin-lot-to-library
-    weight_time_seconds: 32
-    weight_distance_meters: 160
-    is_walkable: true
-    is_driveable: false
-    status: open
-
-  - from_node_id: vitap-lot-overflow
-    to_node_id: vitap-osm-1485935405
-    road_id: vitap-road-overflow-lot-to-lh1
-    weight_time_seconds: 24
-    weight_distance_meters: 120
-    is_walkable: true
-    is_driveable: false
-    status: open
-
-  - from_node_id: vitap-osm-1485935405
-    to_node_id: vitap-lot-overflow
-    road_id: vitap-road-overflow-lot-to-lh1
-    weight_time_seconds: 24
-    weight_distance_meters: 120
-    is_walkable: true
-    is_driveable: false
-    status: open
-
-  - from_node_id: vitap-lot-overflow
-    to_node_id: vitap-osm-1434890457
-    road_id: vitap-road-overflow-lot-to-mh6
-    weight_time_seconds: 28
-    weight_distance_meters: 140
-    is_walkable: true
-    is_driveable: false
-    status: open
-
-  - from_node_id: vitap-osm-1434890457
-    to_node_id: vitap-lot-overflow
-    road_id: vitap-road-overflow-lot-to-mh6
-    weight_time_seconds: 28
-    weight_distance_meters: 140
-    is_walkable: true
-    is_driveable: false
-    status: open
-
-  # Fix 4: driveable edges main gate ↔ sports lot
-  - from_node_id: vitap-gate-main
-    to_node_id: vitap-lot-sports
-    road_id: vitap-road-main-gate-to-sports-lot
-    weight_time_seconds: 107
-    weight_distance_meters: 534
-    is_walkable: true
-    is_driveable: true
-    status: open
-
-  - from_node_id: vitap-lot-sports
-    to_node_id: vitap-gate-main
-    road_id: vitap-road-main-gate-to-sports-lot
-    weight_time_seconds: 107
-    weight_distance_meters: 534
-    is_walkable: true
-    is_driveable: true
-    status: open
-
-  - from_node_id: vitap-lot-sports
-    to_node_id: vitap-gym-001
-    road_id: vitap-road-sports-lot-to-sports
-    weight_time_seconds: 20
-    weight_distance_meters: 100
-    is_walkable: true
-    is_driveable: false
-    status: open
-
-  - from_node_id: vitap-gym-001
-    to_node_id: vitap-lot-sports
-    road_id: vitap-road-sports-lot-to-sports
-    weight_time_seconds: 20
-    weight_distance_meters: 100
-    is_walkable: true
-    is_driveable: false
-    status: open
-
-  - from_node_id: vitap-lot-sports
-    to_node_id: vitap-osm-1485919486
-    road_id: vitap-road-sports-lot-to-ab1
-    weight_time_seconds: 28
-    weight_distance_meters: 140
-    is_walkable: true
-    is_driveable: false
-    status: open
-
-  - from_node_id: vitap-osm-1485919486
-    to_node_id: vitap-lot-sports
-    road_id: vitap-road-sports-lot-to-ab1
-    weight_time_seconds: 28
-    weight_distance_meters: 140
+  - from_node_id: vitap-osm-lh2-001
+    to_node_id: vitap-lot-hostel
+    road_id: vitap-road-hostel-lot-to-lh2
+    weight_time_seconds: 512
+    weight_distance_meters: 640
     is_walkable: true
     is_driveable: false
     status: open
