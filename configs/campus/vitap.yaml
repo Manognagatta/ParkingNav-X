@@ -37,9 +37,9 @@ gates:
   # Visitor/Secondary gate
   # ASSUMED: 1 lane × 3 veh/min/lane = 3 veh/min service rate (no measurement available)
   - gate_id: vitap-gate-visitor
-    name: "Visitor Gate"
-    latitude: 16.4895000
-    longitude: 80.4960000
+    name: "Alternative Gate"
+    latitude: 16.4930000
+    longitude: 80.5028000
     capacity: 3
     status: open
     metadata:
@@ -357,31 +357,45 @@ roads:
       - { lat: 16.492800, lng: 80.498200 }
 
   - road_id: vitap-road-visitor-gate-to-admin-lot
-    name: "Visitor Gate to Admin Lot"
+    name: "Alternative Gate to Admin Lot"
     start_node_id: vitap-gate-visitor
     end_node_id: vitap-lot-admin-visitor
-    length_meters: 350
-    expected_travel_time_seconds: 70
+    length_meters: 330
+    expected_travel_time_seconds: 66
     is_walkable: true
     is_driveable: true
     status: open
     geometry:
-      - { lat: 16.4895000, lng: 80.4960000 }
-      - { lat: 16.491400, lng: 80.497600 }
+      - { lat: 16.4930000, lng: 80.5028000 }
+      - { lat: 16.492900, lng: 80.500500 }
       - { lat: 16.492800, lng: 80.498200 }
 
-  - road_id: vitap-road-visitor-gate-to-overflow-lot
-    name: "Visitor Gate to Overflow Lot"
+  - road_id: vitap-road-visitor-gate-to-academic-lot
+    name: "Alternative Gate to Academic Lot"
     start_node_id: vitap-gate-visitor
-    end_node_id: vitap-lot-overflow
-    length_meters: 280
-    expected_travel_time_seconds: 56
+    end_node_id: vitap-lot-academic-main
+    length_meters: 220
+    expected_travel_time_seconds: 44
     is_walkable: true
     is_driveable: true
     status: open
     geometry:
-      - { lat: 16.4895000, lng: 80.4960000 }
-      - { lat: 16.489750, lng: 80.496500 }
+      - { lat: 16.4930000, lng: 80.5028000 }
+      - { lat: 16.493200, lng: 80.501150 }
+      - { lat: 16.493500, lng: 80.499500 }
+
+  - road_id: vitap-road-visitor-gate-to-overflow-lot
+    name: "Alternative Gate to Overflow Lot"
+    start_node_id: vitap-gate-visitor
+    end_node_id: vitap-lot-overflow
+    length_meters: 600
+    expected_travel_time_seconds: 120
+    is_walkable: true
+    is_driveable: true
+    status: open
+    geometry:
+      - { lat: 16.4930000, lng: 80.5028000 }
+      - { lat: 16.491500, lng: 80.500000 }
       - { lat: 16.490000, lng: 80.497000 }
 
   # Fix 4: Sports lot was unreachable by car from any gate. Added driveable road.
@@ -776,8 +790,8 @@ edges:
   - from_node_id: vitap-gate-visitor
     to_node_id: vitap-lot-admin-visitor
     road_id: vitap-road-visitor-gate-to-admin-lot
-    weight_time_seconds: 70
-    weight_distance_meters: 350
+    weight_time_seconds: 66
+    weight_distance_meters: 330
     is_walkable: true
     is_driveable: true
     status: open
@@ -785,8 +799,26 @@ edges:
   - from_node_id: vitap-lot-admin-visitor
     to_node_id: vitap-gate-visitor
     road_id: vitap-road-visitor-gate-to-admin-lot
-    weight_time_seconds: 70
-    weight_distance_meters: 350
+    weight_time_seconds: 66
+    weight_distance_meters: 330
+    is_walkable: true
+    is_driveable: true
+    status: open
+
+  - from_node_id: vitap-gate-visitor
+    to_node_id: vitap-lot-academic-main
+    road_id: vitap-road-visitor-gate-to-academic-lot
+    weight_time_seconds: 44
+    weight_distance_meters: 220
+    is_walkable: true
+    is_driveable: true
+    status: open
+
+  - from_node_id: vitap-lot-academic-main
+    to_node_id: vitap-gate-visitor
+    road_id: vitap-road-visitor-gate-to-academic-lot
+    weight_time_seconds: 44
+    weight_distance_meters: 220
     is_walkable: true
     is_driveable: true
     status: open
@@ -794,8 +826,8 @@ edges:
   - from_node_id: vitap-gate-visitor
     to_node_id: vitap-lot-overflow
     road_id: vitap-road-visitor-gate-to-overflow-lot
-    weight_time_seconds: 56
-    weight_distance_meters: 280
+    weight_time_seconds: 120
+    weight_distance_meters: 600
     is_walkable: true
     is_driveable: true
     status: open
@@ -803,8 +835,8 @@ edges:
   - from_node_id: vitap-lot-overflow
     to_node_id: vitap-gate-visitor
     road_id: vitap-road-visitor-gate-to-overflow-lot
-    weight_time_seconds: 56
-    weight_distance_meters: 280
+    weight_time_seconds: 120
+    weight_distance_meters: 600
     is_walkable: true
     is_driveable: true
     status: open
