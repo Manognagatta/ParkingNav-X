@@ -1,123 +1,109 @@
-﻿# Parking Nav X
+﻿# ParkingNav-X
 
-A smart-parking research project for the VIT-AP campus. It models the campus
-(gates, roads, parking lots, destinations) as a **digital twin**, simulates
-vehicles arriving and parking, and is the base for the upcoming
-prediction â†’ risk â†’ optimization stages.
+**Event-Aware Predictive Digital Twin for Proactive Campus Parking and Mobility Management**
 
-## Folder layout
+VIT-AP University, Amaravati, Andhra Pradesh — B.Tech CSE Capstone Project
+
+## Overview
+
+ParkingNav-X is a complete smart-parking research prototype that:
+1. **Digital Twin** — Models VIT-AP campus (gates, roads, parking lots, destinations) with real OpenStreetMap coordinates
+2. **Simulation Engine** — Discrete-time vehicle simulation with BPR travel times, gate queuing, event-aware demand
+3. **Prediction Engine (Stage 6)** — Occupancy forecasting with conformal prediction intervals (Historical, Moving Average, XGBoost)
+4. **Risk Engine (Stage 7)** — Multi-dimensional risk scoring (overflow, gate queue, congestion, search, network)
+5. **Optimization Engine (Stage 8)** — Multi-objective optimizer with proactive recommendations (J = Σ wᵢ·costᵢ)
+6. **REST API** — FastAPI backend serving all stages
+7. **React Frontend** — Live dashboard with Leaflet map, Recharts metrics, scenario controls
+
+## Folder Layout
 
 ```
 ParkingNav-X/
-<<<<<<< HEAD
-├── digital_twin/     The main Python package (campus model, simulation, API, CLI)
+├── digital_twin/
+│   ├── api/              FastAPI REST endpoints
+│   ├── simulation/       Discrete-time simulation engine + strategies
+│   ├── prediction/       Stage 6: occupancy forecasting
+│   ├── risk/             Stage 7: risk scoring
+│   ├── optimization/     Stage 8: multi-objective optimizer
+│   ├── config_loader.py  Loads campus YAML into SQLite
+│   └── db.py             SQLite connection + migration runner
 ├── configs/
-│   ├── campuses/     Campus definitions: vitap.yaml (real campus), sample.yaml (tiny test campus)
-│   └── scenarios/    Simulation scenarios, one folder per campus (vitap/, sample/)
-├── data/             30-day VIT-AP history CSVs (occupancy, gates, roads) + calendar/events
-├── migrations/       SQLite database schema (applied automatically)
-├── scripts/          Command-line helpers (load a campus, import data, generate data)
-├── tests/            Automated tests for digital_twin/ (+ fixtures/)
-├── docs/             Reports, roadmap, and data documentation
-├── experiments/      results/ = results tables (committed); runs/ = per-run CSVs (not committed)
-└── legacy/           The original prototype optimizer, kept for reference only
-=======
-â”œâ”€â”€ digital_twin/     The main Python package (campus model, simulation, API, CLI)
-â”œâ”€â”€ configs/
-â”‚   â”œâ”€â”€ campuses/     Campus definitions: vitap.yaml (real campus), sample.yaml (tiny test campus)
-â”‚   â””â”€â”€ scenarios/    Simulation scenarios, one folder per campus (vitap/, sample/)
-â”œâ”€â”€ data/             30-day VIT-AP history CSVs (occupancy, gates, roads) + calendar/events
-â”œâ”€â”€ migrations/       SQLite database schema (applied automatically)
-â”œâ”€â”€ scripts/          Command-line helpers (load a campus, import data, generate data)
-â”œâ”€â”€ tests/            Automated tests for digital_twin/ (+ fixtures/)
-â”œâ”€â”€ docs/             Reports, roadmap, and data documentation
-â”œâ”€â”€ experiments/runs/ Simulation output (created when you run a simulation; not committed)
-â””â”€â”€ legacy/           The original prototype optimizer, kept for reference only
->>>>>>> 7e7480a3c640692a24ace314c17353395f1eb2fc
+│   ├── campus/           Campus definitions: vitap.yaml (real VIT-AP campus)
+│   └── scenarios/        Simulation scenarios (vitap/)
+├── data/                 Synthetic multi-year demand CSV, events data
+├── migrations/           SQLite schema migrations (applied automatically)
+├── scripts/              run_batch.py, run_all_experiments.py, generate_results_summary.py
+├── tests/                Pytest test suite
+├── frontend/             React + Vite + Tailwind + Leaflet + Recharts
+├── experiments/          results/ (committed), runs/ (per-run CSVs, not committed)
+└── docs/                 Reports and roadmap
 ```
 
-## Setup
+## Quick Start
+
+### Backend
 
 ```bash
+cd ParkingNav-X
 pip install -r requirements.txt
+uvicorn digital_twin.api.app:app --reload --port 8000
 ```
 
-## Common tasks
+API docs: http://localhost:8000/docs
 
-All commands run from the repo root.
-
-Run the tests:
+### Frontend
 
 ```bash
-python -m pytest
+cd frontend
+npm install
+npm run dev
 ```
 
-Load the VIT-AP campus into the local database (`digital_twin.db`):
+Frontend: http://localhost:5173
+
+### Docker (full stack)
 
 ```bash
-python scripts/load_campus_config.py --config configs/campus/vitap.yaml
+docker compose up --build
 ```
 
-> The former `scripts/import_history_data.py` (30-day history CSV import) is not in this repo, so that step was removed.
+## Strategies
 
-Run one simulation (prints the conservation check; `--verbose` adds hourly occupancy curves and one vehicle trace; output goes to `runs/<scenario>/<strategy>/seed_<n>/`):
+| Code | Name | Description |
+|------|------|-------------|
+| B1 | First Available | Naïve — assigns first open lot found |
+| B2 | Nearest Available | Picks the closest open lot by distance |
+| B3 | Prediction Only | Avoids nearly-full lots using fill-rate forecast |
+| B4 | ParkingNav-X (full) | Prediction + gate load balancing + zone routing |
 
-```bash
-python -m simulation run --scenario S1 --strategy nearest --seed 7 --verbose
-# same code: python -m digital_twin.simulation.cli run --campus vitap --scenario E1_normal_day --strategy nearest --seed 7
-# aliases: S1..S8 = E1_normal_day, E2_event_placement, E3_lot_closure, E4_gate_closure, E5_noise_0, E6_ablation, E7_replay, E8_vehicle_types
-```
+## Key Metrics
 
-<<<<<<< HEAD
-Run a scenario with both baselines (First-Available, Nearest-Available) over 30 seeds:
+- `avg_parking_search_time` — average time spent searching for a space
+- `avg_waiting_time` — average gate queue wait time
+- `avg_gate_queue` / `max_gate_queue` — gate congestion
+- `overflow_events` — number of times all lots were full
+- `total_travel_time` — sum of all vehicle travel times
 
-```bash
-python -m digital_twin.cli.run --scenario configs/scenarios/vitap/peak_hour.yaml
-=======
-Run many scenarios x strategies x seeds in parallel, then rebuild the results table:
+## Campus: VIT-AP University
 
-```bash
-python scripts/run_batch.py --scenarios all --seeds 0-29 --strategies B1,B2,B3,B4 --jobs 12
-python scripts/generate_results_summary.py     # writes docs/member1/results_summary.md
->>>>>>> 7e7480a3c640692a24ace314c17353395f1eb2fc
-```
+- **Gates**: Main Gate (16.4912°N, 80.5018°E), Visitor Gate (16.4895°N, 80.4960°E)
+- **Parking Lots**: Academic Main (120), Hostel (180), Admin/Visitor (80), Sports (100), Overflow (60)
+- **Total Capacity**: 540 spaces (usable: 472)
 
-Run every VIT-AP scenario, or test forecast error (0%, 10%, 20%):
+## API Endpoints
 
-```bash
-python -m digital_twin.cli.run --all
-python -m digital_twin.cli.run --scenario configs/scenarios/vitap/peak_hour.yaml --forecast-error 0 0.1 0.2
-```
-
-Results tables (mean ± 95% CI) go to `experiments/results/*.md`; per-vehicle and
-per-minute CSVs for every run go to `experiments/runs/`.
-
-Check a scenario file is valid before running it:
-
-```bash
-python -m digital_twin.simulation.cli validate --campus vitap --scenario road_closure
-```
-
-Start the API at http://127.0.0.1:8000 (interactive docs at `/docs`):
-
-```bash
-uvicorn digital_twin.api.app:app --reload
-```
-
-## Documentation
-
-| Doc | What's in it |
-|---|---|
-| [docs/MEMBER1_SUBSYSTEM_REPORT.md](docs/MEMBER1_SUBSYSTEM_REPORT.md) | How `digital_twin/` works: config, graph, twin state, simulation, API |
-| [docs/STAGE6-8_DEVELOPMENT_ROADMAP.md](docs/STAGE6-8_DEVELOPMENT_ROADMAP.md) | Plan for the next stages: prediction, risk, optimization |
-| [docs/PROJECT_COMPLETION_STATUS.md](docs/PROJECT_COMPLETION_STATUS.md) | Overall pipeline progress |
-| [docs/data/](docs/data/) | VIT-AP data: provenance, completion report, quick start, dataset-generation prompt |
-| [legacy/README.md](legacy/README.md) | The original flat optimizer (Dijkstra + risk scoring) |
-
-## About the data
-
-The campus layout and destination names come from public OpenStreetMap data.
-The 30-day occupancy, gate-queue, and road-congestion data is **synthetic**:
-generated, not measured at VIT-AP. Every record is labelled with its
-provenance. See [docs/data/PROVENANCE.md](docs/data/PROVENANCE.md) for the
-field-by-field breakdown.
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/` | System info |
+| GET | `/campus` | Campus summary |
+| GET | `/scenarios` | Available scenarios |
+| GET | `/strategies` | Available strategies |
+| POST | `/simulate` | Run simulation |
+| GET | `/compare/{scenario}` | Compare all strategies |
+| GET | `/events` | Campus events |
+| GET | `/predict/occupancy` | Predict lot occupancy |
+| GET | `/predict/all` | Predict all lots |
+| GET | `/risk/current` | Current risk scores |
+| GET | `/risk/forecast` | Forecasted risk scores |
+| POST | `/optimize` | Generate recommendations |
+| GET | `/recommendations` | Latest recommendations |

@@ -11,10 +11,11 @@ MIGRATIONS_DIR = PROJECT_ROOT / "migrations"
 DEFAULT_DB_PATH = PROJECT_ROOT / "digital_twin.db"
 
 
-def get_connection(db_path=None) -> sqlite3.Connection:
-    conn = sqlite3.connect(str(db_path or DEFAULT_DB_PATH))
+def get_connection(db_path=None, timeout: float = 30.0) -> sqlite3.Connection:
+    conn = sqlite3.connect(str(db_path or DEFAULT_DB_PATH), timeout=timeout)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
+    conn.execute("PRAGMA journal_mode = WAL")
     return conn
 
 
