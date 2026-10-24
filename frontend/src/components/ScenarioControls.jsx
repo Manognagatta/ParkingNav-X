@@ -9,21 +9,21 @@ const STRATEGY_LABELS = {
   B1: 'B1 First Available',
   B2: 'B2 Nearest Available',
   B3: 'B3 Prediction Only',
-  B4: 'B4 ParkingNav-X',
+  P: 'ParkingNav-X',
 }
 
 const STRATEGY_COLORS = {
   B1: '#94a3b8',
   B2: '#60a5fa',
   B3: '#a78bfa',
-  B4: '#10b981',
+  P: '#10b981',
 }
 
 export default function ScenarioControls() {
   const [scenarios, setScenarios] = useState([])
   const [strategies, setStrategies] = useState([])
   const [selectedScenario, setSelectedScenario] = useState('')
-  const [selectedStrategy, setSelectedStrategy] = useState('B4')
+  const [selectedStrategy, setSelectedStrategy] = useState('P')
   const [simResult, setSimResult] = useState(null)
   const [compareResult, setCompareResult] = useState(null)
   const [loading, setLoading] = useState(false)
@@ -71,28 +71,28 @@ export default function ScenarioControls() {
       B1: compareResult.comparison?.B1?.avg_search_time_min ?? 0,
       B2: compareResult.comparison?.B2?.avg_search_time_min ?? 0,
       B3: compareResult.comparison?.B3?.avg_search_time_min ?? 0,
-      B4: compareResult.comparison?.B4?.avg_search_time_min ?? 0,
+      P: compareResult.comparison?.P?.avg_search_time_min ?? 0,
     },
     {
       metric: 'Wait Time (min)',
       B1: compareResult.comparison?.B1?.avg_wait_time_min ?? 0,
       B2: compareResult.comparison?.B2?.avg_wait_time_min ?? 0,
       B3: compareResult.comparison?.B3?.avg_wait_time_min ?? 0,
-      B4: compareResult.comparison?.B4?.avg_wait_time_min ?? 0,
+      P: compareResult.comparison?.P?.avg_wait_time_min ?? 0,
     },
     {
       metric: 'Avg Gate Queue',
       B1: compareResult.comparison?.B1?.avg_gate_queue ?? 0,
       B2: compareResult.comparison?.B2?.avg_gate_queue ?? 0,
       B3: compareResult.comparison?.B3?.avg_gate_queue ?? 0,
-      B4: compareResult.comparison?.B4?.avg_gate_queue ?? 0,
+      P: compareResult.comparison?.P?.avg_gate_queue ?? 0,
     },
     {
       metric: 'Overflow Events',
       B1: compareResult.comparison?.B1?.overflow_events ?? 0,
       B2: compareResult.comparison?.B2?.overflow_events ?? 0,
       B3: compareResult.comparison?.B3?.overflow_events ?? 0,
-      B4: compareResult.comparison?.B4?.overflow_events ?? 0,
+      P: compareResult.comparison?.P?.overflow_events ?? 0,
     },
   ] : []
 
@@ -158,8 +158,8 @@ export default function ScenarioControls() {
               ['Total Vehicles', simResult.vehicles],
               ['Parked', simResult.metrics?.parked_vehicles],
               ['Overflow Events', simResult.metrics?.overflow_events],
-              ['Avg Search Time', simResult.metrics?.avg_search_time_min ? `${simResult.metrics.avg_search_time_min} min` : 'N/A'],
-              ['Avg Wait Time', simResult.metrics?.avg_wait_time_min ? `${simResult.metrics.avg_wait_time_min} min` : 'N/A'],
+              ['Avg Search Time', simResult.metrics?.avg_search_time_min != null ? `${simResult.metrics.avg_search_time_min} min` : 'N/A'],
+              ['Avg Wait Time', simResult.metrics?.avg_wait_time_min != null ? `${simResult.metrics.avg_wait_time_min} min` : 'N/A'],
               ['Avg Gate Queue', simResult.metrics?.avg_gate_queue ?? 'N/A'],
               ['Peak Gate Queue', simResult.metrics?.peak_gate_queue ?? 'N/A'],
               ['Run ID', simResult.run_id],
@@ -186,7 +186,7 @@ export default function ScenarioControls() {
               <YAxis tick={{ fontSize: 11 }} />
               <Tooltip />
               <Legend />
-              {['B1', 'B2', 'B3', 'B4'].map(code => (
+              {['B1', 'B2', 'B3', 'P'].map(code => (
                 <Bar key={code} dataKey={code} name={STRATEGY_LABELS[code]} fill={STRATEGY_COLORS[code]} />
               ))}
             </BarChart>
@@ -206,7 +206,7 @@ export default function ScenarioControls() {
               </thead>
               <tbody>
                 {Object.entries(compareResult.comparison || {}).map(([code, m]) => (
-                  <tr key={code} className={`border-b ${code === 'B4' ? 'bg-green-50 font-semibold' : ''}`}>
+                  <tr key={code} className={`border-b ${code === 'P' ? 'bg-green-50 font-semibold' : ''}`}>
                     <td className="py-2 px-3">{STRATEGY_LABELS[code] || code}</td>
                     <td className="text-right py-2 px-3">{m.avg_search_time_min ?? '—'}</td>
                     <td className="text-right py-2 px-3">{m.avg_wait_time_min ?? '—'}</td>

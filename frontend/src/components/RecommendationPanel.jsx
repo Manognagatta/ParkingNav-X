@@ -39,15 +39,35 @@ export default function RecommendationPanel() {
   const [profile, setProfile] = useState('P1')
   const [loading, setLoading] = useState(false)
   const [lastUpdated, setLastUpdated] = useState(null)
+  const [error, setError] = useState('')
 
   const fetchRecs = async (wp = profile) => {
     setLoading(true)
+    setError('')
+    setRecs([])
+
     try {
-      const res = await api.optimize('peak_hour', wp)
-      setRecs(res.data.recommendations || [])
+      const res = await api.optimize('E1_normal_day', wp)
+
+      if (res.data?.error) {
+        throw new Error(res.data.error)
+      }
+
+      if (!Array.isArray(res.data?.recommendations)) {
+        throw new Error(
+          'The optimization API returned an unexpected response.'
+        )
+      }
+
+      setRecs(res.data.recommendations)
       setLastUpdated(new Date().toLocaleTimeString())
     } catch (e) {
-      console.error(e)
+      setError(
+        e.response?.data?.detail ||
+        e.response?.data?.error ||
+        e.message ||
+        'Failed to load recommendations.'
+      )
     } finally {
       setLoading(false)
     }
@@ -97,6 +117,22 @@ export default function RecommendationPanel() {
           ))}
         </div>
       </div>
+
+      {error && (
+        <div
+          role="alert"
+          className="p-4 bg-red-50 border border-red-200 rounded text-red-700 text-sm"
+        >
+          Failed to generate recommendations: {error}
+          <button
+            type="button"
+            onClick={() => fetchRecs()}
+            className="ml-3 underline font-semibold"
+          >
+            Retry
+          </button>
+        </div>
+      )}
 
       {/* Recommendation Cards */}
       {loading ? (
@@ -191,7 +227,7 @@ export default function RecommendationPanel() {
 
           {recs.length === 0 && !loading && (
             <div className="text-center py-12 text-gray-400">
-              No active recommendations. Connect to the backend to generate them.
+              No recommendations were returned for this scenario and weight profile.
             </div>
           )}
         </div>

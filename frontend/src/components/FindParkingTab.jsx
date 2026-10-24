@@ -50,12 +50,40 @@ export default function FindParkingTab({ initialDest }) {
   const [selectedOption, setSelectedOption] = useState(0)
 
   useEffect(() => {
-    api.getCampus().then(res => {
-      setCampus(res.data)
-      if (initialDest) setSelectedDest(initialDest.id)
-      else if (res.data.destinations?.length) setSelectedDest(res.data.destinations[0].id)
-    }).catch(() => {})
-  }, [initialDest])
+      let cancelled = false
+
+      const loadCampus = async () => {
+        setError(null)
+
+        try {
+          const res = await api.getCampus()
+
+          if (cancelled) return
+
+          setCampus(res.data)
+
+          if (initialDest) {
+            setSelectedDest(initialDest.id)
+          } else if (res.data.destinations?.length) {
+            setSelectedDest(res.data.destinations[0].id)
+          }
+        } catch (e) {
+          if (cancelled) return
+
+          setError(
+            e.response?.data?.detail ||
+            e.message ||
+            'Failed to load campus data.'
+          )
+        }
+      }
+
+      loadCampus()
+
+      return () => {
+        cancelled = true
+      }
+    }, [initialDest])
 
   const findParking = async () => {
     if (!selectedDest) return

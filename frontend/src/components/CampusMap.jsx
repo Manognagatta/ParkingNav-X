@@ -86,17 +86,43 @@ export default function CampusMap({ onNavigateTo }) {
   const [highlightRoute, setHighlightRoute] = useState(null) // [{lat,lng}]
 
   const fetchData = useCallback(async () => {
+    setLoading(true)
+
     try {
-      const [campusRes, predRes] = await Promise.all([
+      const [campusResult, predictionResult] = await Promise.allSettled([
         api.getCampus(),
         api.predictAll(15),
       ])
-      setCampus(campusRes.data)
-      setPredictions(predRes.data.predictions || [])
+
+      const errors = []
+
+      if (campusResult.status === 'fulfilled') {
+        setCampus(campusResult.value.data)
+      } else {
+        errors.push(
+          `Campus: ${
+            campusResult.reason.response?.data?.detail ||
+            campusResult.reason.message ||
+            'Request failed'
+          }`
+        )
+      }
+
+      if (predictionResult.status === 'fulfilled') {
+        setPredictions(predictionResult.value.data.predictions ?? [])
+      } else {
+        setPredictions([])
+        errors.push(
+          `Predictions: ${
+            predictionResult.reason.response?.data?.detail ||
+            predictionResult.reason.message ||
+            'Request failed'
+          }`
+        )
+      }
+
+      setError(errors.length ? errors.join(' | ') : null)
       setLastUpdated(new Date().toLocaleTimeString())
-      setError(null)
-    } catch (e) {
-      setError('Cannot connect to backend. Start the API server on port 8000.')
     } finally {
       setLoading(false)
     }
