@@ -32,18 +32,49 @@ export default function ForecastPanel() {
   const [risks, setRisks] = useState(null)
   const [horizon, setHorizon] = useState(15)
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
 
   const fetchData = async () => {
     setLoading(true)
+    setError('')
+
     try {
-      const [predRes, riskRes] = await Promise.all([
+      const [predResult, riskResult] = await Promise.allSettled([
         api.predictAll(horizon),
         api.getRiskForecast(horizon),
       ])
-      setPredictions(predRes.data.predictions || [])
-      setRisks(riskRes.data)
-    } catch (e) {
-      console.error(e)
+
+      const errors = []
+
+      if (predResult.status === 'fulfilled') {
+        setPredictions(predResult.value.data.predictions ?? [])
+      } else {
+        setPredictions([])
+        errors.push(
+          `Predictions: ${
+            predResult.reason.response?.data?.detail ||
+            predResult.reason.message ||
+            'Request failed'
+          }`
+        )
+      }
+
+      if (riskResult.status === 'fulfilled') {
+        setRisks(riskResult.value.data)
+      } else {
+        setRisks(null)
+        errors.push(
+          `Risk forecast: ${
+            riskResult.reason.response?.data?.detail ||
+            riskResult.reason.message ||
+            'Request failed'
+          }`
+        )
+      }
+
+      if (errors.length > 0) {
+        setError(errors.join(' | '))
+      }
     } finally {
       setLoading(false)
     }
@@ -68,6 +99,21 @@ export default function ForecastPanel() {
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-lg font-bold text-gray-800">Forecast & Risk Panel</h2>
+          {error && (
+            <div
+              role="alert"
+              className="p-3 rounded border border-red-200 bg-red-50 text-red-700 text-sm"
+            >
+              {error}
+              <button
+                type="button"
+                onClick={fetchData}
+                className="ml-3 underline font-semibold"
+              >
+                Retry
+              </button>
+            </div>
+          )}
           <p className="text-sm text-gray-500">Occupancy predictions with 90% conformal intervals + multi-dimensional risk scores</p>
         </div>
         <div className="flex items-center gap-2">

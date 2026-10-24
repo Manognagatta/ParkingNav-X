@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   Legend, ResponsiveContainer, RadarChart, Radar, PolarGrid,
@@ -6,11 +6,8 @@ import {
 } from 'recharts'
 import { api } from '../api'
 
-const STRATEGIES = ['B1', 'B2', 'B3', 'B4']
-const SCENARIOS = [
-  'peak_hour', 'E1_normal_day', 'E2_event_placement', 'E3_lot_closure', 'E4_gate_closure'
-]
-const STRATEGY_COLORS = { B1: '#94a3b8', B2: '#60a5fa', B3: '#a78bfa', B4: '#10b981' }
+const STRATEGIES = ['B1', 'B2', 'B3', 'P']
+const STRATEGY_COLORS = { B1: '#94a3b8', B2: '#60a5fa', B3: '#a78bfa', P: '#10b981' }
 const METRICS = [
   { key: 'avg_search_time_min', label: 'Avg Search Time (min)', lower: true },
   { key: 'avg_wait_time_min',   label: 'Avg Wait Time (min)',   lower: true },
@@ -19,54 +16,127 @@ const METRICS = [
 ]
 
 export default function ExperimentsDashboard() {
-  const [results, setResults] = useState({})   // { scenario: { B1: metrics, B2: ..., ... } }
-  const [loading, setLoading] = useState(false)
-  const [selectedScenario, setSelectedScenario] = useState('peak_hour')
-  const [selectedMetric, setSelectedMetric] = useState('avg_search_time_min')
-  const [progress, setProgress] = useState([])
+  const [results, setResults] = useState({})
+const [loading, setLoading] = useState(false)
+const [scenarios, setScenarios] = useState([])
+const [selectedScenario, setSelectedScenario] = useState('')
+const [selectedMetric, setSelectedMetric] = useState('avg_search_time_min')
+const [progress, setProgress] = useState([])
+const [scenarioError, setScenarioError] = useState('')
+
+useEffect(() => {
+  const loadScenarios = async () => {
+    try {
+      setScenarioError('')
+
+      const res = await api.getScenarios()
+      const availableScenarios = res.data.scenarios ?? []
+
+      setScenarios(availableScenarios)
+
+      if (availableScenarios.length > 0) {
+        setSelectedScenario(current =>
+          availableScenarios.includes(current)
+            ? current
+            : availableScenarios[0]
+        )
+      } else {
+        setScenarioError('The API returned no scenarios.')
+      }
+    } catch (error) {
+      setScenarioError(
+        error.response?.data?.detail ||
+        error.message ||
+        'Failed to load scenarios.'
+      )
+    }
+  }
+
+  loadScenarios()
+}, [])
 
   const runExperiments = async () => {
-    setLoading(true)
-    setProgress([])
-    const newResults = {}
+  if (scenarios.length === 0) {
+    setProgress(['No scenarios are available to run.'])
+    return
+  }
 
-    for (const scenario of SCENARIOS) {
+  setLoading(true)
+  setProgress([])
+  setResults({})
+
+  const newResults = {}
+
+  try {
+    for (const scenario of scenarios) {
       try {
         const res = await api.compareStrategies(scenario)
-        newResults[scenario] = res.data.comparison
-        setProgress(p => [...p, `✓ ${scenario}`])
+        const comparison = res.data?.comparison
+
+        if (!comparison) {
+          throw new Error('No comparison data returned')
+        }
+
+        newResults[scenario] = comparison
         setResults({ ...newResults })
-      } catch (e) {
-        setProgress(p => [...p, `✗ ${scenario}: ${e.message}`])
+        setProgress(p => [...p, `✓ ${scenario}`])
+      } catch (error) {
+        setProgress(p => [
+          ...p,
+          `✗ ${scenario}: ${
+            error.response?.data?.detail ||
+            error.message ||
+            'Request failed'
+          }`,
+        ])
       }
     }
-
+  } finally {
     setLoading(false)
   }
+}
 
   // Build chart data for selected scenario
   const scenarioData = results[selectedScenario] || {}
   const chartData = METRICS.map(m => ({
     metric: m.label,
-    B1: scenarioData.B1?.[m.key] ?? 0,
-    B2: scenarioData.B2?.[m.key] ?? 0,
-    B3: scenarioData.B3?.[m.key] ?? 0,
-    B4: scenarioData.B4?.[m.key] ?? 0,
+    B1: scenarioData.B1?.[m.key] ?? null,
+    B2: scenarioData.B2?.[m.key] ?? null,
+    B3: scenarioData.B3?.[m.key] ?? null,
+    P: scenarioData.P?.[m.key] ?? null,
   }))
 
   // Radar data (normalized) for selected scenario
-  const metricMaxes = METRICS.map(m => Math.max(
-    ...STRATEGIES.map(s => scenarioData[s]?.[m.key] ?? 0), 1
-  ))
+  const metricMaxes = METRICS.map(m => {
+  const values = STRATEGIES
+    .map(s => scenarioData[s]?.[m.key])
+    .filter(v => typeof v === 'number' && Number.isFinite(v))
+
+  return values.length > 0
+    ? Math.max(...values, 1)
+    : null
+})
   const radarData = STRATEGIES.map(strategy => {
-    const point = { strategy }
-    METRICS.forEach((m, i) => {
-      const val = scenarioData[strategy]?.[m.key] ?? 0
-      // lower is better → invert for radar (higher = better)
-      point[m.label] = m.lower ? 1 - val / metricMaxes[i] : val / metricMaxes[i]
-    })
-    return point
+  const point = { strategy }
+
+  METRICS.forEach((m, i) => {
+    const val = scenarioData[strategy]?.[m.key]
+    const max = metricMaxes[i]
+
+    if (
+      typeof val !== 'number' ||
+      !Number.isFinite(val) ||
+      max === null
+    ) {
+      point[m.label] = null
+    } else {
+      // Lower values are better for these metrics.
+      point[m.label] = m.lower ? 1 - val / max : val / max
+    }
   })
+
+  return point
+})
 
   // Summary table: all scenarios × all strategies
   const hasResults = Object.keys(results).length > 0
@@ -77,7 +147,7 @@ export default function ExperimentsDashboard() {
         <div>
           <h2 className="text-lg font-bold text-gray-800">Experiments Dashboard</h2>
           <p className="text-sm text-gray-500">
-            Run E1–E5 × B1–B4 strategy comparison. Confirms ParkingNav-X superiority.
+            Compare available scenarios across the supported strategies.
           </p>
         </div>
         <button
@@ -108,9 +178,18 @@ export default function ExperimentsDashboard() {
                 onChange={e => setSelectedScenario(e.target.value)}
                 className="border border-gray-300 rounded px-2 py-1 text-sm"
               >
-                {SCENARIOS.filter(s => results[s]).map(s => (
-                  <option key={s} value={s}>{s.replace(/_/g, ' ')}</option>
-                ))}
+                {scenarioError && (
+                  <p className="text-sm text-red-600" role="alert">
+                    {scenarioError}
+                  </p>
+                )}
+                {scenarios
+                  .filter(s => results[s])
+                  .map(s => (
+                    <option key={s} value={s}>
+                      {s.replace(/_/g, ' ')}
+                    </option>
+                  ))}
               </select>
             </div>
             <div>
@@ -166,12 +245,12 @@ export default function ExperimentsDashboard() {
                 {Object.entries(results).flatMap(([scenario, stratMap]) =>
                   STRATEGIES.map((s, si) => {
                     const m = stratMap[s] || {}
-                    const isB4 = s === 'B4'
+                    const isParkingNav = s === 'P'
                     return (
-                      <tr key={`${scenario}-${s}`} className={`border-b ${isB4 ? 'bg-green-50 font-semibold' : ''} ${si === 0 ? 'border-t-2 border-gray-300' : ''}`}>
+                      <tr key={`${scenario}-${s}`} className={`border-b ${isParkingNav ? 'bg-green-50 font-semibold' : ''} ${si === 0 ? 'border-t-2 border-gray-300' : ''}`}>
                         <td className="py-1.5 px-3 text-gray-600">{si === 0 ? scenario.replace(/_/g, ' ') : ''}</td>
                         <td className="py-1.5 px-3">
-                          <span className={`px-1.5 py-0.5 rounded text-xs font-bold ${isB4 ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-700'}`}>{s}</span>
+                          <span className={`px-1.5 py-0.5 rounded text-xs font-bold ${isParkingNav ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-700'}`}>{s}</span>
                         </td>
                         <td className="text-right py-1.5 px-3">{m.avg_search_time_min ?? '—'}</td>
                         <td className="text-right py-1.5 px-3">{m.avg_wait_time_min ?? '—'}</td>
@@ -190,8 +269,16 @@ export default function ExperimentsDashboard() {
       {!hasResults && !loading && (
         <div className="text-center py-20 bg-white rounded-lg shadow">
           <div className="text-4xl mb-3">🔬</div>
-          <div className="text-gray-500">Click "Run All Experiments" to compare B1–B4 strategies across E1–E5 scenarios</div>
-          <div className="text-xs text-gray-400 mt-2">Each experiment runs a full simulation (~10–30s per scenario)</div>
+
+          <div className="text-gray-600">
+            {scenarios.length > 0
+              ? 'Run the experiments to view actual strategy comparisons.'
+              : 'Waiting for available scenarios from the API.'}
+          </div>
+
+          <div className="text-xs text-gray-400 mt-2">
+            Missing experiment results are not treated as zero.
+          </div>
         </div>
       )}
     </div>
