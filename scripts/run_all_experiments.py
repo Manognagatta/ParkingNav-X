@@ -54,7 +54,9 @@ EXPERIMENTS = [
 
 
 def get_conn():
-    conn = get_connection(DB_PATH)
+    # Use in-memory DB per run to avoid cross-thread UNIQUE constraint and locking errors.
+    # Each run is self-contained; results are captured in the returned dict.
+    conn = get_connection(":memory:")
     apply_migrations(conn)
     load_campus_config(CAMPUS_YAML, conn)
     return conn

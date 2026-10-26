@@ -191,6 +191,24 @@ def simulate(req: SimulateRequest):
     engine = SimulationEngine()
     run_id = f"api-{uuid.uuid4().hex[:8]}"
     result = engine.run(scenario, strategy, conn, run_id=run_id)
+
+    # Populate lot_occupancy_history so the risk engine sees real data
+    if result.timesteps:
+        last_ts = result.timesteps[-1]
+        lot_ids = [k.replace("parking_occupancy_", "") for k in last_ts if k.startswith("parking_occupancy_")]
+        for lot_id in lot_ids:
+            occupied = last_ts.get(f"parking_occupancy_{lot_id}", 0)
+            cap = last_ts.get(f"parking_capacity_{lot_id}", 1) or 1
+            fill_rate = round(occupied / cap, 4)
+            try:
+                conn.execute(
+                    "INSERT INTO lot_occupancy_history (lot_id, occupied_spaces, fill_rate) VALUES (?, ?, ?)",
+                    (lot_id, int(occupied), fill_rate),
+                )
+            except Exception:
+                pass
+        conn.commit()
+
     conn.close()
 
     m = result.metrics

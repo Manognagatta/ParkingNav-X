@@ -156,7 +156,11 @@ class SimulationResult:
             "max_search_time_min": max(search_times),
             "total_vehicles": _total,
             "completed_vehicles": _exited,
+            # parked_vehicles = snapshot at sim end (still parked, not yet departed)
+            # total_ever_parked = all that ever reached parked state (parked + exited)
             "parked_vehicles": _parked,
+            "total_ever_parked": _parked + _exited,
+            "successful_park_rate": round((_parked + _exited) / _total, 4) if _total else 0.0,
             "total_reassignments": _total_reassignments,
             "infeasibility_rejections": self.infeasibility_rejections,
             "adapter_fallbacks": self.adapter_fallbacks,
