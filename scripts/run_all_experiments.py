@@ -236,11 +236,11 @@ def main():
             new_results.append(r)
             completed += 1
             if r.get("status") == "ok":
-                print(f"  ✓ [{completed}/{len(tasks)}] {r['run_id']} "
+                print(f"  OK [{completed}/{len(tasks)}] {r['run_id']} "
                       f"search={r.get('avg_search_time_min','?')} min "
                       f"overflow={r.get('overflow_events','?')}")
             else:
-                print(f"  ✗ [{completed}/{len(tasks)}] {r['run_id']}: {r.get('error','?')}")
+                print(f"  ERR [{completed}/{len(tasks)}] {r['run_id']}: {r.get('error','?')}")
 
     # Merge with existing valid results
     existing_all = []
@@ -257,13 +257,13 @@ def main():
     merged = list(existing_by_id.values())
 
     results_path.write_text(json.dumps(merged, indent=2))
-    print(f"\n✓ {len(merged)} total results saved → {results_path}")
+    print(f"\nDone: {len(merged)} total results saved -> {results_path}")
 
     # Summary
     md, summary_dict = build_summary(merged)
     (RESULTS_DIR / "summary_table.md").write_text(md)
     (RESULTS_DIR / "results_summary.json").write_text(json.dumps(summary_dict, indent=2))
-    print(f"✓ Summary → experiments/results/summary_table.md + results_summary.json")
+    print(f"Summary -> experiments/results/summary_table.md + results_summary.json")
     print("\n" + md)
 
 
