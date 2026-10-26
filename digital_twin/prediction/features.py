@@ -7,7 +7,13 @@ import numpy as np
 import pandas as pd
 from pathlib import Path
 
-DATA_PATH = Path(__file__).resolve().parent.parent.parent / "data" / "synthetic_multi_year_demand.csv"
+_DATA_DIR = Path(__file__).resolve().parent.parent.parent / "data"
+# Prefer the dense 30-day synthetic dataset; fall back to the sparse hand-curated one.
+DATA_PATH = (
+    _DATA_DIR / "synthetic_demand.csv"
+    if (_DATA_DIR / "synthetic_demand.csv").exists()
+    else _DATA_DIR / "synthetic_multi_year_demand.csv"
+)
 
 LOT_IDS = [
     "vitap-lot-academic-main",

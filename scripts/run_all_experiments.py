@@ -1,17 +1,19 @@
 """
-Run all ParkingNav-X experiments: E1–E7 × B1–B4 × N seeds.
+Run all ParkingNav-X experiments: E1–E6 × strategies × N seeds.
 
 Usage:
-    python scripts/run_all_experiments.py [--seeds 5] [--workers 4]
+    python scripts/run_all_experiments.py [--seeds 5] [--workers 2]
+    python scripts/run_all_experiments.py --scenarios E1_normal_day --seeds 30
 
 Outputs:
+    experiments/results/all_results.json   (appended; existing valid results preserved)
     experiments/results/summary_table.md
-    experiments/results/all_results.json
-    experiments/runs/*.csv  (per-run metrics)
+    experiments/results/results_summary.json
 """
 
 import argparse
 import json
+import statistics
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
@@ -28,174 +30,241 @@ from digital_twin.simulation.scenario import ScenarioLoader
 from digital_twin.simulation.strategy import FirstAvailableStrategy, NearestAvailableStrategy
 from digital_twin.simulation.demo_strategies import PredictionOnlyStrategy, ParkingNavXFullStrategy
 
-DB_PATH = ROOT / "digital_twin.db"
 CAMPUS_YAML = ROOT / "configs" / "campus" / "vitap.yaml"
 SCENARIO_DIR = ROOT / "configs" / "scenarios" / "vitap"
-RESULTS_DIR = ROOT / "experiments" / "results"
-RUNS_DIR    = ROOT / "experiments" / "runs"
+RESULTS_DIR  = ROOT / "experiments" / "results"
+RUNS_DIR     = ROOT / "experiments" / "runs"
 
-STRATEGIES = {
-    "B1": FirstAvailableStrategy,
-    "B2": NearestAvailableStrategy,
-    "B3": PredictionOnlyStrategy,
-    "B4": ParkingNavXFullStrategy,
-}
+# Strategy factories with short labels that become directory names
+def _make_strategy(code):
+    LABELS = {
+        "B1": ("B1", FirstAvailableStrategy),
+        "B2": ("B2", NearestAvailableStrategy),
+        "B3": ("B3", PredictionOnlyStrategy),
+        "P":  ("P",  ParkingNavXFullStrategy),
+    }
+    label, cls = LABELS[code]
+    s = cls()
+    s.label = label  # engine uses getattr(strategy, "label", class_name)
+    return s
 
-# The experiment matrix
+# Experiment matrix
+# E5 and E6 variants run P strategy only (ablation/noise are P-specific)
 EXPERIMENTS = [
-    "E1_normal_day",
-    "E2_event_placement",
-    "E3_lot_closure",
-    "E4_gate_closure",
-    "E5_noise_0",
-    "E6_ablation",
-    "peak_hour",
+    # (yaml_stem, [strategies])
+    ("E1_normal_day",       ["B1", "B2", "B3", "P"]),
+    ("E2_event_placement",  ["B1", "B2", "B3", "P"]),
+    ("E3_lot_closure",      ["B1", "B2", "B3", "P"]),
+    ("E4_gate_closure",     ["B1", "B2", "B3", "P"]),
+    ("E5_noise_0",          ["P"]),
+    ("E5_noise_10",         ["P"]),
+    ("E5_noise_20",         ["P"]),
+    ("E6_ablation",         ["P"]),   # variant A
+    ("E6_ablation_B",       ["P"]),
+    ("E6_ablation_C",       ["P"]),
+    ("E6_ablation_D",       ["P"]),
 ]
 
 
 def get_conn():
-    conn = get_connection(DB_PATH)
+    conn = get_connection(":memory:")
     apply_migrations(conn)
     load_campus_config(CAMPUS_YAML, conn)
     return conn
 
 
-def run_one(scenario: str, strategy_code: str, seed: int) -> dict:
-    """Run a single (scenario, strategy, seed) experiment."""
-    scenario_file = SCENARIO_DIR / f"{scenario}.yaml"
+def _existing_run_ids(results_path: Path) -> set:
+    """Return run_ids of valid (no-error) existing results."""
+    if not results_path.exists():
+        return set()
+    try:
+        data = json.loads(results_path.read_text())
+        return {r["run_id"] for r in data if "error" not in r and "run_id" in r}
+    except Exception:
+        return set()
+
+
+def run_one(scenario_yaml: str, strategy_code: str, seed: int) -> dict:
+    """Run a single (scenario, strategy, seed) cell."""
+    scenario_file = SCENARIO_DIR / f"{scenario_yaml}.yaml"
     if not scenario_file.exists():
-        return {"scenario": scenario, "strategy": strategy_code, "seed": seed, "error": "scenario not found"}
+        run_id = f"{scenario_yaml}-{strategy_code}-s{seed}"
+        return {"run_id": run_id, "scenario": scenario_yaml, "strategy": strategy_code,
+                "seed": seed, "error": "scenario file not found"}
 
     conn = get_conn()
-    strategy_cls = STRATEGIES.get(strategy_code)
-    if strategy_cls is None:
-        conn.close()
-        return {"scenario": scenario, "strategy": strategy_code, "seed": seed, "error": "unknown strategy"}
-
-    strategy = strategy_cls()
+    strategy = _make_strategy(strategy_code)
     sc = ScenarioLoader.load(scenario_file)
-    engine = SimulationEngine()
-    run_id = f"{scenario}-{strategy_code}-s{seed}"
 
+    # Override seed so different iterations produce different demand patterns
+    sc.random_seed = seed
+
+    run_id = f"{scenario_yaml}-{strategy_code}-s{seed}"
     t0 = time.time()
     try:
+        engine = SimulationEngine()
         result = engine.run(sc, strategy, conn, run_id=run_id)
         m = result.metrics
-        elapsed = time.time() - t0
+        elapsed = round(time.time() - t0, 2)
         conn.close()
         return {
             "run_id": run_id,
-            "scenario": scenario,
+            "scenario": scenario_yaml,
             "strategy": strategy_code,
             "seed": seed,
-            "elapsed_s": round(elapsed, 2),
+            "elapsed_s": elapsed,
             "total_vehicles": m.get("total_vehicles"),
-            "parked_vehicles": m.get("parked_vehicles"),
+            "total_ever_parked": m.get("total_ever_parked"),
+            "successful_park_rate": m.get("successful_park_rate"),
             "overflow_events": m.get("overflow_events_count"),
             "avg_search_time_min": m.get("avg_search_time_min"),
             "avg_wait_time_min": m.get("avg_wait_time_min"),
             "avg_gate_queue": m.get("avg_gate_queue"),
             "max_gate_queue": m.get("max_gate_queue"),
+            "status": "ok",
         }
     except Exception as e:
         conn.close()
-        return {"run_id": run_id, "scenario": scenario, "strategy": strategy_code, "seed": seed, "error": str(e)}
+        return {"run_id": run_id, "scenario": scenario_yaml, "strategy": strategy_code,
+                "seed": seed, "error": str(e), "status": "error"}
 
 
-def build_summary_table(results: list) -> str:
-    """Build a Markdown summary table from all results."""
+def build_summary(results: list) -> tuple[str, dict]:
+    """Return (markdown_str, summary_dict) from results."""
     from collections import defaultdict
-    import statistics
+    import math
 
-    # Group by (scenario, strategy)
     groups = defaultdict(list)
     for r in results:
-        if "error" not in r:
+        if r.get("status") == "ok":
             groups[(r["scenario"], r["strategy"])].append(r)
 
-    lines = ["# ParkingNav-X Experiment Results\n",
-             "| Scenario | Strategy | Avg Search (min) | Avg Wait (min) | Avg Queue | Overflow Events |",
-             "|----------|----------|------------------|----------------|-----------|-----------------|"]
+    def _stats(vals):
+        if not vals:
+            return None
+        n = len(vals)
+        mean = statistics.mean(vals)
+        std = statistics.stdev(vals) if n > 1 else 0.0
+        # t-critical ~ 1.96 for n>=30, use scipy if available else 2.0
+        try:
+            from scipy.stats import t as t_dist
+            tc = float(t_dist.ppf(0.975, df=max(n - 1, 1)))
+        except ImportError:
+            tc = 2.0 if n < 30 else 1.96
+        ci95 = tc * std / math.sqrt(n)
+        return {"mean": round(mean, 4), "std": round(std, 4), "ci95": round(ci95, 4), "n": n}
 
-    scenarios = sorted(set(r["scenario"] for r in results))
-    for scenario in scenarios:
-        for strategy in ["B1", "B2", "B3", "B4"]:
-            runs = groups.get((scenario, strategy), [])
-            if not runs:
-                continue
+    summary_dict = {}
+    md_lines = [
+        "# ParkingNav-X Experiment Results\n",
+        "| Scenario | Strategy | n | Avg Search (min) | ±95%CI | Avg Wait (min) | ±95%CI | Avg Queue | Overflow |",
+        "|----------|----------|---|------------------|--------|----------------|--------|-----------|----------|",
+    ]
 
-            def avg(key):
-                vals = [r[key] for r in runs if r.get(key) is not None]
-                return round(statistics.mean(vals), 2) if vals else "—"
+    for (sc, st), runs in sorted(groups.items()):
+        key = f"{sc}|{st}"
+        metrics = {}
+        for metric in ["avg_search_time_min", "avg_wait_time_min", "avg_gate_queue", "overflow_events"]:
+            vals = [r[metric] for r in runs if r.get(metric) is not None]
+            metrics[metric] = _stats(vals)
+        summary_dict[key] = {"scenario": sc, "strategy": st, "n": len(runs), "metrics": metrics}
 
-            highlight = "**" if strategy == "B4" else ""
-            lines.append(
-                f"| {scenario.replace('_', ' ')} | {highlight}{strategy}{highlight} "
-                f"| {avg('avg_search_time_min')} | {avg('avg_wait_time_min')} "
-                f"| {avg('avg_gate_queue')} | {avg('overflow_events')} |"
-            )
+        def _fmt(s):
+            return f"{s['mean']:.3f}" if s else "—"
+        def _ci(s):
+            return f"{s['ci95']:.3f}" if s else "—"
 
-    return "\n".join(lines)
+        md_lines.append(
+            f"| {sc} | {st} | {len(runs)} "
+            f"| {_fmt(metrics.get('avg_search_time_min'))} | ±{_ci(metrics.get('avg_search_time_min'))} "
+            f"| {_fmt(metrics.get('avg_wait_time_min'))} | ±{_ci(metrics.get('avg_wait_time_min'))} "
+            f"| {_fmt(metrics.get('avg_gate_queue'))} "
+            f"| {_fmt(metrics.get('overflow_events'))} |"
+        )
+
+    return "\n".join(md_lines), summary_dict
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Run all ParkingNav-X experiments")
-    parser.add_argument("--seeds", type=int, default=3, help="Number of seeds per experiment cell")
+    parser = argparse.ArgumentParser(description="Run ParkingNav-X experiment matrix")
+    parser.add_argument("--seeds", type=int, default=5, help="Seeds per cell (default 5)")
     parser.add_argument("--workers", type=int, default=2, help="Parallel workers")
-    parser.add_argument("--scenarios", nargs="+", default=None, help="Specific scenarios to run")
+    parser.add_argument("--scenarios", nargs="+", default=None,
+                        help="Specific scenario yaml stems to run (e.g. E1_normal_day)")
+    parser.add_argument("--skip-existing", action="store_true", default=True,
+                        help="Skip run_ids already in all_results.json (default True)")
     args = parser.parse_args()
-
-    scenarios = args.scenarios or EXPERIMENTS
-    scenarios = [s for s in scenarios if (SCENARIO_DIR / f"{s}.yaml").exists()]
-
-    if not scenarios:
-        print("No valid scenario files found. Check configs/scenarios/vitap/")
-        return
 
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)
     RUNS_DIR.mkdir(parents=True, exist_ok=True)
 
-    tasks = [
-        (scenario, strategy, seed)
-        for scenario in scenarios
-        for strategy in ["B1", "B2", "B3", "B4"]
-        for seed in range(1, args.seeds + 1)
-    ]
-
-    print(f"Running {len(tasks)} experiments ({len(scenarios)} scenarios × 4 strategies × {args.seeds} seeds)")
-    print(f"Workers: {args.workers}\n")
-
-    all_results = []
-    completed = 0
-
-    with ThreadPoolExecutor(max_workers=args.workers) as executor:
-        futures = {executor.submit(run_one, s, st, sd): (s, st, sd) for s, st, sd in tasks}
-        for future in as_completed(futures):
-            result = future.result()
-            all_results.append(result)
-            completed += 1
-            if "error" in result:
-                print(f"  ✗ [{completed}/{len(tasks)}] {result['run_id']}: {result['error']}")
-            else:
-                print(
-                    f"  ✓ [{completed}/{len(tasks)}] {result['run_id']} "
-                    f"— search={result.get('avg_search_time_min')} min, "
-                    f"overflow={result.get('overflow_events')}"
-                )
-
-    # Save results
     results_path = RESULTS_DIR / "all_results.json"
-    with open(results_path, "w") as f:
-        json.dump(all_results, f, indent=2)
-    print(f"\n✓ Results saved to {results_path}")
+    existing_ids = _existing_run_ids(results_path) if args.skip_existing else set()
+    if existing_ids:
+        print(f"Skipping {len(existing_ids)} already-completed run_ids")
 
-    # Build and save summary table
-    summary = build_summary_table(all_results)
-    summary_path = RESULTS_DIR / "summary_table.md"
-    with open(summary_path, "w") as f:
-        f.write(summary)
-    print(f"✓ Summary table saved to {summary_path}")
-    print("\n" + summary)
+    # Filter matrix
+    matrix = EXPERIMENTS
+    if args.scenarios:
+        matrix = [(sc, sts) for sc, sts in matrix if sc in args.scenarios]
+
+    # Build task list, skip existing
+    tasks = []
+    for scenario_yaml, strategies in matrix:
+        if not (SCENARIO_DIR / f"{scenario_yaml}.yaml").exists():
+            print(f"  ! Skipping {scenario_yaml} — YAML not found")
+            continue
+        for strategy_code in strategies:
+            for seed in range(args.seeds):
+                run_id = f"{scenario_yaml}-{strategy_code}-s{seed}"
+                if run_id not in existing_ids:
+                    tasks.append((scenario_yaml, strategy_code, seed))
+
+    if not tasks:
+        print("All tasks already completed. Nothing to run.")
+        return
+
+    print(f"Running {len(tasks)} tasks ({args.workers} workers) …\n")
+
+    new_results = []
+    completed = 0
+    with ThreadPoolExecutor(max_workers=args.workers) as executor:
+        futures = {executor.submit(run_one, sc, st, sd): (sc, st, sd)
+                   for sc, st, sd in tasks}
+        for future in as_completed(futures):
+            r = future.result()
+            new_results.append(r)
+            completed += 1
+            if r.get("status") == "ok":
+                print(f"  OK [{completed}/{len(tasks)}] {r['run_id']} "
+                      f"search={r.get('avg_search_time_min','?')} min "
+                      f"overflow={r.get('overflow_events','?')}")
+            else:
+                print(f"  ERR [{completed}/{len(tasks)}] {r['run_id']}: {r.get('error','?')}")
+
+    # Merge with existing valid results
+    existing_all = []
+    if results_path.exists():
+        try:
+            existing_all = json.loads(results_path.read_text())
+        except Exception:
+            existing_all = []
+
+    # Combine: existing + new (deduplicated by run_id, new wins on conflict)
+    existing_by_id = {r["run_id"]: r for r in existing_all}
+    for r in new_results:
+        existing_by_id[r["run_id"]] = r
+    merged = list(existing_by_id.values())
+
+    results_path.write_text(json.dumps(merged, indent=2))
+    print(f"\nDone: {len(merged)} total results saved -> {results_path}")
+
+    # Summary
+    md, summary_dict = build_summary(merged)
+    (RESULTS_DIR / "summary_table.md").write_text(md)
+    (RESULTS_DIR / "results_summary.json").write_text(json.dumps(summary_dict, indent=2))
+    print(f"Summary -> experiments/results/summary_table.md + results_summary.json")
+    print("\n" + md)
 
 
 if __name__ == "__main__":

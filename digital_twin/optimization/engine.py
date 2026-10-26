@@ -227,6 +227,10 @@ class MultiObjectiveOptimizer:
                 "recommended": score < 0.70,
             })
         ranked.sort(key=lambda x: x["recommendation_score"])
+        # Add per-lot objective score and rank position for explainability
+        for i, lot in enumerate(ranked):
+            lot["objective_score"] = lot["recommendation_score"]  # alias for API consumers
+            lot["rank"] = i + 1
         return ranked
 
     def generate_recommendations(self, conn) -> List[Dict]:
@@ -269,11 +273,23 @@ class MultiObjectiveOptimizer:
             })
 
         # 2. Lot ranking recommendation
+        best = ranked_lots[0] if ranked_lots else None
+        n_feasible = sum(1 for l in ranked_lots if l.get("recommended", False))
+        why_chosen = (
+            f"Chosen because {best['lot_name']} has the lowest objective score "
+            f"({best['objective_score']:.3f}) among {n_feasible} feasible alternatives."
+            if best else "No feasible lots available."
+        )
         recommendations.append({
             "id": str(uuid.uuid4())[:8],
             "priority": "INFO",
             "type": "LOT_RANKING",
             "message": "Current parking lot availability ranked by recommendation score",
+            "recommended_lot": best["lot_id"] if best else None,
+            "recommended_lot_name": best["lot_name"] if best else None,
+            "objective_score": best["objective_score"] if best else None,
+            "why_chosen": why_chosen,
+            "alternatives": ranked_lots[1:] if ranked_lots else [],
             "ranked_lots": ranked_lots,
             "cost_function": cost,
             "weight_profile": self.profile,

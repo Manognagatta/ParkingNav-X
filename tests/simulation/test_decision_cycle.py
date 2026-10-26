@@ -118,8 +118,8 @@ def test_decision_latency_measured(conn, engine):
         assert "timestamp" in update
 
 
-def test_forecast_none_when_member_2_unavailable(conn, engine):
-    """Forecast is None (Member 2 not integrated yet)."""
+def test_forecast_none_when_prediction_disabled(conn, engine):
+    """When use_prediction=False, forecast is None in every policy update."""
     scenario = ScenarioConfig(
         scenario_id="test-no-forecast",
         campus_id="sample",
@@ -131,12 +131,13 @@ def test_forecast_none_when_member_2_unavailable(conn, engine):
         availability_overrides={"closed_gates": [], "closed_parking_lots": [], "closed_roads": []},
         prediction_error_injection_level=0.0,
         random_seed=502,
+        use_prediction=False,  # opt out of prediction engine
     )
 
     strategy = CountingStrategy()
     engine.run(scenario, strategy, conn)
 
-    # All policy updates should have forecast=None
+    # All policy updates should have forecast=None because use_prediction=False
     assert all(not update["has_forecast"] for update in strategy.policy_updates)
 
 

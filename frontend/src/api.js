@@ -40,4 +40,11 @@ export const api = {
     axios.get(`${BASE}/route`, { params: { origin, destination, mode } }),
   findParking:       (destination_id, gate_id = 'vitap-gate-main') =>
     axios.get(`${BASE}/find_parking`, { params: { destination_id, gate_id } }),
+
+  // Experiments
+  getExperimentResults: (scenario, strategy, limit = 200) =>
+    axios.get(`${BASE}/experiments/results`, { params: { scenario, strategy, limit } }),
+  getExperimentSummary: () => axios.get(`${BASE}/experiments/summary`),
+  runExperiment: (scenario, strategies, seeds) =>
+    axios.post(`${BASE}/experiments/run`, { scenario, strategies, seeds }),
 }

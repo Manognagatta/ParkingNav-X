@@ -15,17 +15,22 @@ RESULTS_DIR = Path(__file__).resolve().parent.parent.parent / "experiments" / "r
 
 
 def evaluate_predictor(predictor_name: str, predictions: np.ndarray, targets: np.ndarray) -> dict:
-    """Compute MAE, RMSE, MAPE for a set of predictions vs targets."""
+    """Compute MAE, RMSE, MAPE, R² for a set of predictions vs targets."""
     errors = predictions - targets
     mae = float(np.mean(np.abs(errors)))
     rmse = float(math.sqrt(np.mean(errors ** 2)))
     # MAPE: skip targets near zero
     mask = np.abs(targets) > 0.01
     mape = float(np.mean(np.abs(errors[mask] / targets[mask])) * 100) if mask.any() else float("nan")
+    # R²
+    ss_res = float(np.sum(errors ** 2))
+    ss_tot = float(np.sum((targets - targets.mean()) ** 2))
+    r2 = 1.0 - ss_res / ss_tot if ss_tot > 0 else float("nan")
     return {
         "predictor": predictor_name,
         "mae": round(mae, 4),
         "rmse": round(rmse, 4),
+        "r2": round(r2, 4) if not math.isnan(r2) else None,
         "mape_pct": round(mape, 2) if not math.isnan(mape) else None,
         "n_samples": int(len(predictions)),
     }
@@ -84,10 +89,17 @@ def run_evaluation(horizon_minutes: int = 15):
         ha_preds = ha_preds[:min_len]
         y_test_lot = y_test_lot[:min_len]
 
+        # MovingAverage on test portion
+        from digital_twin.prediction.engine import MovingAveragePredictor
+        ma = MovingAveragePredictor()
+        ma.fit(df, lot_id, horizon_steps)
+        ma_preds = np.array([ma.predict(lot_id)] * min_len)
+
         result = {
             "lot_id": lot_id,
             "horizon_minutes": horizon_minutes,
             "historical_average": evaluate_predictor("HistoricalAverage", ha_preds, y_test_lot),
+            "moving_average": evaluate_predictor("MovingAverage", ma_preds, y_test_lot),
         }
 
         # XGBoost
@@ -120,5 +132,11 @@ if __name__ == "__main__":
     results = run_evaluation()
     for r in results:
         ha = r.get("historical_average", {})
+        ma = r.get("moving_average", {})
         xgb = r.get("xgboost", {})
-        print(f"{r['lot_id']}: HA MAE={ha.get('mae')}, XGB MAE={xgb.get('mae')}, coverage={xgb.get('coverage_90')}")
+        print(
+            f"{r['lot_id']}: "
+            f"HA MAE={ha.get('mae')} R²={ha.get('r2')} | "
+            f"MA MAE={ma.get('mae')} R²={ma.get('r2')} | "
+            f"XGB MAE={xgb.get('mae')} R²={xgb.get('r2')} coverage={xgb.get('coverage_90')}"
+        )
