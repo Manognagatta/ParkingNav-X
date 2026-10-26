@@ -107,6 +107,9 @@ docker compose up --build
 | GET | `/risk/forecast` | Forecasted risk scores |
 | POST | `/optimize` | Generate recommendations |
 | GET | `/recommendations` | Latest recommendations |
+| GET | `/experiments/results` | Stored experiment run records |
+| GET | `/experiments/summary` | Mean ± 95%CI per scenario × strategy |
+| POST | `/experiments/run` | Run a small experiment batch |
 
 ## Routing Endpoints
 
@@ -118,28 +121,31 @@ docker compose up --build
 ## Running Scripts
 
 ```bash
-# Run all 4 strategies on a scenario and compare
-python scripts/run_scenario.py E1_normal_day
-python scripts/run_scenario.py peak_hour
-python scripts/run_scenario.py E2_event_placement
-
-# Prove all Member 1 deliverables work
-python scripts/prove_member1.py
-
 # Run full test suite
 python -m pytest tests/ -q
-python -m pytest tests/simulation/ -q
+
+# Run experiment matrix (E1-E6, all strategies, 5 seeds pilot)
+python scripts/run_all_experiments.py --seeds 5 --workers 2
+
+# Generate summary tables from saved results
+python scripts/generate_results_summary.py
+
+# Run all 4 strategies on a scenario and compare (quick check)
+python scripts/run_scenario.py E1_normal_day
+python scripts/run_scenario.py E2_event_placement
+
+# Review-day demo (start backend first)
+bash scripts/demo.sh          # Linux/macOS
+.\scripts\demo.ps1            # Windows PowerShell
 ```
 
 ## Test Results
 
-As of the latest audit and repair:
+As of Phase 3 (2026-10-26):
 
-- **Core tests** (campus, graph, twin): 33/33 passing
-- **API tests**: 10/10 passing
-- **Prediction, Risk, Optimization tests**: 36/36 passing
-- **Simulation suite**: 181/185 passing, 14 skipped (environment-dependent)
-- **All tests combined**: 250+ passing
+- **All tests**: 307/321 passing, 14 skipped, 0 failures
+- Skipped tests: E5/E6 statistical assertions (now wired; will unskip after experiment matrix runs)
+- Full suite runtime: ~8 minutes
 
 ## Data Provenance
 

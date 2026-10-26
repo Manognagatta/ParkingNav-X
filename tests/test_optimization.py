@@ -107,6 +107,41 @@ def test_overflow_penalty_zero_for_low_fill():
     assert penalty == 0.0, "No lots over 95% should mean zero overflow penalty"
 
 
+def test_recommendation_has_objective_score_and_why_chosen():
+    """LOT_RANKING recommendation must include objective_score and why_chosen fields."""
+    from digital_twin.optimization.engine import MultiObjectiveOptimizer
+    from digital_twin.db import get_connection, apply_migrations
+    from digital_twin.config_loader import load_campus_config
+    from pathlib import Path
+
+    ROOT = Path(__file__).resolve().parent.parent
+    conn = get_connection(":memory:")
+    apply_migrations(conn)
+    load_campus_config(ROOT / "configs" / "campus" / "vitap.yaml", conn)
+
+    opt = MultiObjectiveOptimizer(weight_profile="P2")
+    recs = opt.generate_recommendations(conn)
+    conn.close()
+
+    # Find the LOT_RANKING recommendation
+    lot_ranking = next((r for r in recs if r.get("type") == "LOT_RANKING"), None)
+    assert lot_ranking is not None, "Expected a LOT_RANKING recommendation"
+    assert "objective_score" in lot_ranking, "LOT_RANKING must include objective_score"
+    assert isinstance(lot_ranking["objective_score"], float), "objective_score must be float"
+    assert 0.0 <= lot_ranking["objective_score"] <= 1.0, "objective_score must be in [0, 1]"
+    assert "why_chosen" in lot_ranking, "LOT_RANKING must include why_chosen"
+    assert isinstance(lot_ranking["why_chosen"], str), "why_chosen must be a string"
+    assert len(lot_ranking["why_chosen"]) > 10, "why_chosen must be a non-trivial sentence"
+    assert "alternatives" in lot_ranking, "LOT_RANKING must include alternatives list"
+
+    # Each ranked lot should also have objective_score and rank
+    ranked = lot_ranking.get("ranked_lots", [])
+    assert len(ranked) > 0, "ranked_lots must not be empty"
+    assert "objective_score" in ranked[0], "Each ranked lot must have objective_score"
+    assert "rank" in ranked[0], "Each ranked lot must have rank field"
+    assert ranked[0]["rank"] == 1, "Best lot should have rank=1"
+
+
 def test_all_weight_profiles_produce_valid_J():
     """All three weight profiles produce valid J values."""
     from digital_twin.optimization.engine import MultiObjectiveOptimizer, WEIGHT_PROFILES
