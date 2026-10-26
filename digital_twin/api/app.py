@@ -3,9 +3,11 @@ ParkingNav-X REST API
 VIT-AP University Smart Parking Digital Twin
 """
 import json
+import math
+import statistics
 import uuid
 from pathlib import Path
-from typing import Optional
+from typing import List, Optional
 
 import networkx as nx
 from fastapi import FastAPI, HTTPException
@@ -24,6 +26,8 @@ ROOT = Path(__file__).resolve().parent.parent.parent
 DB_PATH = ROOT / "digital_twin.db"
 CAMPUS_YAML = ROOT / "configs" / "campus" / "vitap.yaml"
 SCENARIO_DIR = ROOT / "configs" / "scenarios" / "vitap"
+RESULTS_FILE = ROOT / "experiments" / "results" / "all_results.json"
+SUMMARY_FILE = ROOT / "experiments" / "results" / "results_summary.json"
 
 app = FastAPI(
     title="ParkingNav-X API",
@@ -634,3 +638,168 @@ def get_recommendations():
         return {"recommendations": recs, "count": len(recs)}
     except Exception as e:
         return {"recommendations": [], "error": str(e)}
+
+
+# ── Experiments endpoints ──────────────────────────────────────────────────────
+
+class ExperimentRunRequest(BaseModel):
+    scenario: str
+    strategies: List[str] = ["B1", "B2", "B3", "P"]
+    seeds: List[int] = [0, 1, 2]
+
+
+def _load_results() -> list:
+    if not RESULTS_FILE.exists():
+        return []
+    try:
+        return json.loads(RESULTS_FILE.read_text())
+    except Exception:
+        return []
+
+
+def _compute_summary(results: list) -> dict:
+    from collections import defaultdict
+    groups = defaultdict(list)
+    for r in results:
+        if r.get("status") == "ok":
+            groups[(r["scenario"], r["strategy"])].append(r)
+
+    summary = {}
+    for (sc, st), runs in groups.items():
+        key = f"{sc}|{st}"
+        metrics = {}
+        for metric in ["avg_search_time_min", "avg_wait_time_min", "avg_gate_queue",
+                        "overflow_events", "successful_park_rate"]:
+            vals = [r[metric] for r in runs if r.get(metric) is not None]
+            if not vals:
+                metrics[metric] = None
+                continue
+            n = len(vals)
+            mean = statistics.mean(vals)
+            std = statistics.stdev(vals) if n > 1 else 0.0
+            tc = 2.0 if n < 30 else 1.96
+            metrics[metric] = {
+                "mean": round(mean, 4), "std": round(std, 4),
+                "ci95": round(tc * std / math.sqrt(n), 4), "n": n,
+            }
+        summary[key] = {"scenario": sc, "strategy": st, "n": len(runs), "metrics": metrics}
+    return summary
+
+
+@app.get("/experiments/results", tags=["Experiments"])
+def get_experiment_results(
+    scenario: Optional[str] = None,
+    strategy: Optional[str] = None,
+    limit: int = 200,
+):
+    """Return stored experiment run records, optionally filtered."""
+    results = _load_results()
+    if not results:
+        return {"results": [], "total": 0, "note": "No results found. Run experiments first."}
+
+    if scenario:
+        results = [r for r in results if r.get("scenario") == scenario]
+    if strategy:
+        results = [r for r in results if r.get("strategy") == strategy]
+
+    return {
+        "results": results[:limit],
+        "total": len(results),
+        "returned": min(len(results), limit),
+        "data_source": "experiments/results/all_results.json",
+    }
+
+
+@app.get("/experiments/summary", tags=["Experiments"])
+def get_experiment_summary():
+    """Return aggregated stats (mean ± 95%CI) per scenario × strategy."""
+    # Prefer pre-computed file; recompute if absent or if all_results is newer
+    if SUMMARY_FILE.exists():
+        try:
+            return json.loads(SUMMARY_FILE.read_text())
+        except Exception:
+            pass
+    results = _load_results()
+    if not results:
+        return {}
+    return _compute_summary(results)
+
+
+@app.post("/experiments/run", tags=["Experiments"])
+def run_experiment(req: ExperimentRunRequest):
+    """
+    Run a small experiment batch synchronously (≤ 5 seeds recommended).
+    Results are appended to experiments/results/all_results.json.
+    """
+    import time as _time
+
+    STRATEGY_MAP = {
+        "B1": ("B1", lambda: __import__("digital_twin.simulation.strategy",
+                fromlist=["FirstAvailableStrategy"]).FirstAvailableStrategy()),
+        "B2": ("B2", lambda: __import__("digital_twin.simulation.strategy",
+                fromlist=["NearestAvailableStrategy"]).NearestAvailableStrategy()),
+        "B3": ("B3", lambda: __import__("digital_twin.simulation.demo_strategies",
+                fromlist=["PredictionOnlyStrategy"]).PredictionOnlyStrategy()),
+        "P":  ("P",  lambda: __import__("digital_twin.simulation.demo_strategies",
+                fromlist=["ParkingNavXFullStrategy"]).ParkingNavXFullStrategy()),
+    }
+
+    scenario_file = SCENARIO_DIR / f"{req.scenario}.yaml"
+    if not scenario_file.exists():
+        raise HTTPException(status_code=404, detail=f"Scenario '{req.scenario}' not found")
+
+    bad_strats = [s for s in req.strategies if s not in STRATEGY_MAP]
+    if bad_strats:
+        raise HTTPException(status_code=400, detail=f"Unknown strategies: {bad_strats}")
+
+    new_results = []
+    for strategy_code in req.strategies:
+        label, factory = STRATEGY_MAP[strategy_code]
+        for seed in req.seeds:
+            run_id = f"{req.scenario}-{strategy_code}-s{seed}"
+            conn = get_conn()
+            strategy = factory()
+            strategy.label = label
+            sc = ScenarioLoader.load(scenario_file)
+            sc.random_seed = seed
+            t0 = _time.time()
+            try:
+                engine = SimulationEngine()
+                result = engine.run(sc, strategy, conn, run_id=run_id)
+                m = result.metrics
+                rec = {
+                    "run_id": run_id, "scenario": req.scenario,
+                    "strategy": strategy_code, "seed": seed,
+                    "elapsed_s": round(_time.time() - t0, 2),
+                    "avg_search_time_min": m.get("avg_search_time_min"),
+                    "avg_wait_time_min": m.get("avg_wait_time_min"),
+                    "avg_gate_queue": m.get("avg_gate_queue"),
+                    "overflow_events": m.get("overflow_events_count"),
+                    "total_vehicles": m.get("total_vehicles"),
+                    "successful_park_rate": m.get("successful_park_rate"),
+                    "status": "ok",
+                }
+            except Exception as e:
+                rec = {"run_id": run_id, "scenario": req.scenario,
+                       "strategy": strategy_code, "seed": seed,
+                       "error": str(e), "status": "error"}
+            finally:
+                conn.close()
+            new_results.append(rec)
+
+    # Persist
+    RESULTS_FILE.parent.mkdir(parents=True, exist_ok=True)
+    existing = _load_results()
+    by_id = {r["run_id"]: r for r in existing}
+    for r in new_results:
+        by_id[r["run_id"]] = r
+    RESULTS_FILE.write_text(json.dumps(list(by_id.values()), indent=2))
+
+    ok = [r for r in new_results if r.get("status") == "ok"]
+    err = [r for r in new_results if r.get("status") == "error"]
+    return {
+        "submitted": len(new_results),
+        "ok": len(ok),
+        "errors": len(err),
+        "results": new_results,
+    }
