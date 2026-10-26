@@ -398,7 +398,49 @@ class SimulationEngine:
             if tick % (5 * tpm) == 0:
                 decision_start = datetime.now(timezone.utc)
                 state_snapshot = self.twin_service.get_current_state(scenario.campus_id, conn, now=decision_start)
-                strategy.update_policy(state_snapshot, forecast=None)  # No forecast yet (Member 2's job)
+
+                # Build forecast when prediction is enabled for this scenario
+                forecast = None
+                if scenario.use_prediction:
+                    try:
+                        from digital_twin.prediction.engine import get_predictor
+                        predictor = get_predictor()
+                        # Update current fill rates from live campus state
+                        for lot_id, lot_data in parking_lots.items():
+                            cap = lot_data.get("usable_capacity", 1) or 1
+                            occ = lot_data.get("occupied_spaces", 0)
+                            predictor.update_current(lot_id, occ / cap)
+                        forecast = predictor.get_forecast_snapshot(horizon_minutes=15)
+                        # Inject noise if configured (E5 robustness scenarios)
+                        if scenario.prediction_error_injection_level > 0.0:
+                            from digital_twin.simulation.forecast_noise import ForecastNoiseInjector
+                            injector = ForecastNoiseInjector(
+                                noise_level=scenario.prediction_error_injection_level,
+                                seed=scenario.random_seed + 9999,  # independent noise stream
+                            )
+                            lot_fills = forecast.get("lot_fill_rates", {})
+                            noisy_fills = {}
+                            for lid, fill in lot_fills.items():
+                                noisy_fc = injector.perturb({"occupancy": fill})
+                                noisy_fills[lid] = min(1.0, max(0.0, noisy_fc.get("occupancy", fill)))
+                            forecast = {**forecast, "lot_fill_rates": noisy_fills}
+                    except Exception as _pred_err:
+                        logger.warning("Prediction unavailable during decision cycle: %s", _pred_err)
+                        forecast = None
+
+                # Pass ablation flags so P strategy can disable components selectively
+                ablation_flags = {
+                    "use_prediction": scenario.use_prediction,
+                    "use_optimization": scenario.use_optimization,
+                    "use_uncertainty": scenario.use_uncertainty,
+                    "proactive": scenario.proactive,
+                }
+                try:
+                    strategy.update_policy(state_snapshot, forecast=forecast, ablation_flags=ablation_flags)
+                except TypeError:
+                    # B1/B2 strategies use the old signature (no ablation_flags kwarg)
+                    strategy.update_policy(state_snapshot, forecast=forecast)
+
                 decision_latency_ms = (datetime.now(timezone.utc) - decision_start).total_seconds() * 1000
                 decision_latencies.append({"tick": minute, "latency_ms": round(decision_latency_ms, 2)})
             for rv in running_vehicles:

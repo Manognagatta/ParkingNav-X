@@ -232,6 +232,8 @@ class PredictionEngine:
         preds = self.predict_all(horizon_minutes)
         return {
             "lot_fill_rates": {lid: preds[lid]["fill_rate"] for lid in LOT_IDS},
+            # Upper confidence bound — used by use_uncertainty=True path in P strategy
+            "lot_fill_rates_upper": {lid: preds[lid].get("upper_90", preds[lid]["fill_rate"]) for lid in LOT_IDS},
             "horizon_minutes": horizon_minutes,
             "timestamp": time.time(),
         }
