@@ -189,7 +189,7 @@ def test_pluggable_strategy_registration_runs_and_is_called(run_id):
 
         def update_policy(self, state, forecast):
             calls["update_policy"] += 1
-            assert forecast is None   # no forecast is wired in yet (Member 2)
+            # forecast may be None (prediction unavailable) or a dict (prediction active)
 
     api.register_strategy("Probe", Probe)
     rid = api.run_simulation(_small_scenario(), "Probe", 3)

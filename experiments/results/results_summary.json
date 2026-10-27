@@ -494,5 +494,160 @@
         "n": 5
       }
     }
+  },
+  "E5_noise_10|P": {
+    "scenario": "E5_noise_10",
+    "strategy": "P",
+    "n": 5,
+    "metrics": {
+      "avg_search_time_min": {
+        "mean": 2.5614,
+        "std": 0.0903,
+        "ci95": 0.1121,
+        "n": 5
+      },
+      "avg_wait_time_min": {
+        "mean": 0.0006,
+        "std": 0.0004,
+        "ci95": 0.0005,
+        "n": 5
+      },
+      "avg_gate_queue": {
+        "mean": 0.0,
+        "std": 0.0,
+        "ci95": 0.0,
+        "n": 5
+      },
+      "overflow_events": {
+        "mean": 0,
+        "std": 0.0,
+        "ci95": 0.0,
+        "n": 5
+      }
+    }
+  },
+  "E5_noise_20|P": {
+    "scenario": "E5_noise_20",
+    "strategy": "P",
+    "n": 5,
+    "metrics": {
+      "avg_search_time_min": {
+        "mean": 2.5614,
+        "std": 0.0903,
+        "ci95": 0.1121,
+        "n": 5
+      },
+      "avg_wait_time_min": {
+        "mean": 0.0006,
+        "std": 0.0004,
+        "ci95": 0.0005,
+        "n": 5
+      },
+      "avg_gate_queue": {
+        "mean": 0.0,
+        "std": 0.0,
+        "ci95": 0.0,
+        "n": 5
+      },
+      "overflow_events": {
+        "mean": 0,
+        "std": 0.0,
+        "ci95": 0.0,
+        "n": 5
+      }
+    }
+  },
+  "E6_ablation_B|P": {
+    "scenario": "E6_ablation_B",
+    "strategy": "P",
+    "n": 5,
+    "metrics": {
+      "avg_search_time_min": {
+        "mean": 2.4568,
+        "std": 0.0708,
+        "ci95": 0.0879,
+        "n": 5
+      },
+      "avg_wait_time_min": {
+        "mean": 0.0006,
+        "std": 0.0004,
+        "ci95": 0.0005,
+        "n": 5
+      },
+      "avg_gate_queue": {
+        "mean": 0.0,
+        "std": 0.0,
+        "ci95": 0.0,
+        "n": 5
+      },
+      "overflow_events": {
+        "mean": 0,
+        "std": 0.0,
+        "ci95": 0.0,
+        "n": 5
+      }
+    }
+  },
+  "E6_ablation_C|P": {
+    "scenario": "E6_ablation_C",
+    "strategy": "P",
+    "n": 5,
+    "metrics": {
+      "avg_search_time_min": {
+        "mean": 2.4568,
+        "std": 0.0708,
+        "ci95": 0.0879,
+        "n": 5
+      },
+      "avg_wait_time_min": {
+        "mean": 0.0006,
+        "std": 0.0004,
+        "ci95": 0.0005,
+        "n": 5
+      },
+      "avg_gate_queue": {
+        "mean": 0.0,
+        "std": 0.0,
+        "ci95": 0.0,
+        "n": 5
+      },
+      "overflow_events": {
+        "mean": 0,
+        "std": 0.0,
+        "ci95": 0.0,
+        "n": 5
+      }
+    }
+  },
+  "E6_ablation_D|P": {
+    "scenario": "E6_ablation_D",
+    "strategy": "P",
+    "n": 5,
+    "metrics": {
+      "avg_search_time_min": {
+        "mean": 2.5614,
+        "std": 0.0903,
+        "ci95": 0.1121,
+        "n": 5
+      },
+      "avg_wait_time_min": {
+        "mean": 0.0006,
+        "std": 0.0004,
+        "ci95": 0.0005,
+        "n": 5
+      },
+      "avg_gate_queue": {
+        "mean": 0.0,
+        "std": 0.0,
+        "ci95": 0.0,
+        "n": 5
+      },
+      "overflow_events": {
+        "mean": 0,
+        "std": 0.0,
+        "ci95": 0.0,
+        "n": 5
+      }
+    }
   }
 }

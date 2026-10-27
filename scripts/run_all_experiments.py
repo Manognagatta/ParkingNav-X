@@ -2,8 +2,8 @@
 Run all ParkingNav-X experiments: E1–E6 × strategies × N seeds.
 
 Usage:
-    python scripts/run_all_experiments.py [--seeds 5] [--workers 2]
-    python scripts/run_all_experiments.py --scenarios E1_normal_day --seeds 30
+    python scripts/run_all_experiments.py [--seeds 30] [--workers 2]
+    python scripts/run_all_experiments.py --scenarios E1_normal_day --seeds 5
 
 Outputs:
     experiments/results/all_results.json   (appended; existing valid results preserved)
@@ -78,7 +78,7 @@ def _existing_run_ids(results_path: Path) -> set:
     if not results_path.exists():
         return set()
     try:
-        data = json.loads(results_path.read_text())
+        data = json.loads(results_path.read_text(encoding="utf-8", errors="replace"))
         return {r["run_id"] for r in data if "error" not in r and "run_id" in r}
     except Exception:
         return set()
@@ -107,12 +107,22 @@ def run_one(scenario_yaml: str, strategy_code: str, seed: int) -> dict:
         m = result.metrics
         elapsed = round(time.time() - t0, 2)
         conn.close()
+        # Capture predictor model version (name of active model)
+        try:
+            from digital_twin.prediction.engine import get_predictor
+            predictor = get_predictor()
+            model_version = predictor._xgb.name if predictor._fitted else "MovingAverage"
+        except Exception:
+            model_version = "unknown"
+
         return {
             "run_id": run_id,
             "scenario": scenario_yaml,
             "strategy": strategy_code,
             "seed": seed,
             "elapsed_s": elapsed,
+            "model_version": model_version,
+            "git_sha": getattr(result, "git_sha", None),
             "total_vehicles": m.get("total_vehicles"),
             "total_ever_parked": m.get("total_ever_parked"),
             "successful_park_rate": m.get("successful_park_rate"),
@@ -187,7 +197,7 @@ def build_summary(results: list) -> tuple[str, dict]:
 
 def main():
     parser = argparse.ArgumentParser(description="Run ParkingNav-X experiment matrix")
-    parser.add_argument("--seeds", type=int, default=5, help="Seeds per cell (default 5)")
+    parser.add_argument("--seeds", type=int, default=30, help="Seeds per cell (default 30, spec requires 30 for valid 95% CI)")
     parser.add_argument("--workers", type=int, default=2, help="Parallel workers")
     parser.add_argument("--scenarios", nargs="+", default=None,
                         help="Specific scenario yaml stems to run (e.g. E1_normal_day)")
@@ -228,12 +238,28 @@ def main():
 
     new_results = []
     completed = 0
+
+    # Load existing results once for incremental flush
+    existing_all = []
+    if results_path.exists():
+        try:
+            existing_all = json.loads(results_path.read_text(encoding="utf-8", errors="replace"))
+        except Exception:
+            existing_all = []
+    existing_by_id = {r["run_id"]: r for r in existing_all}
+
+    def _flush():
+        merged_now = list(existing_by_id.values())
+        results_path.write_text(json.dumps(merged_now, indent=2), encoding="utf-8")
+
+    FLUSH_EVERY = 10
     with ThreadPoolExecutor(max_workers=args.workers) as executor:
         futures = {executor.submit(run_one, sc, st, sd): (sc, st, sd)
                    for sc, st, sd in tasks}
         for future in as_completed(futures):
             r = future.result()
             new_results.append(r)
+            existing_by_id[r["run_id"]] = r
             completed += 1
             if r.get("status") == "ok":
                 print(f"  OK [{completed}/{len(tasks)}] {r['run_id']} "
@@ -241,22 +267,11 @@ def main():
                       f"overflow={r.get('overflow_events','?')}")
             else:
                 print(f"  ERR [{completed}/{len(tasks)}] {r['run_id']}: {r.get('error','?')}")
+            if completed % FLUSH_EVERY == 0:
+                _flush()
 
-    # Merge with existing valid results
-    existing_all = []
-    if results_path.exists():
-        try:
-            existing_all = json.loads(results_path.read_text())
-        except Exception:
-            existing_all = []
-
-    # Combine: existing + new (deduplicated by run_id, new wins on conflict)
-    existing_by_id = {r["run_id"]: r for r in existing_all}
-    for r in new_results:
-        existing_by_id[r["run_id"]] = r
     merged = list(existing_by_id.values())
-
-    results_path.write_text(json.dumps(merged, indent=2))
+    results_path.write_text(json.dumps(merged, indent=2), encoding="utf-8")
     print(f"\nDone: {len(merged)} total results saved -> {results_path}")
 
     # Summary

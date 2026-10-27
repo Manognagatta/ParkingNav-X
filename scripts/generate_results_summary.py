@@ -25,7 +25,7 @@ STRATEGY_DIRS = {
     "B2": ["B2-NearestAvailable",
            "digital_twin.simulation.strategy.NearestAvailableStrategy"],
     "B3": ["B3-PredictionOnly"],
-    "B4": ["P-ParkingNavX"],
+    "P":  ["P-ParkingNavX"],
 }
 
 # Canonical scenario order and display names
@@ -101,7 +101,7 @@ def _road_closure_notes() -> list:
            "| Strategy | In-window travel_d | Out-of-window travel_d | Delta |",
            "|----------|-------------------|----------------------|-------|"]
     found = False
-    for strat in ["B1", "B2", "B3", "B4"]:
+    for strat in ["B1", "B2", "B3", "P"]:
         ins, outs = [], []
         for dirname in STRATEGY_DIRS[strat]:
             for seed in range(30):
@@ -124,7 +124,7 @@ def _road_closure_notes() -> list:
 def _e5_notes() -> list:
     """E5: reactive strategies must give identical search time at every noise level."""
     out = ["**E5 noise equivalence (computed):**"]
-    for strat in ["B1", "B2", "B3", "B4"]:
+    for strat in ["B1", "B2", "B3", "P"]:
         vals = []
         for scen in ("vitap-e5-noise-0", "vitap-e5-noise-10", "vitap-e5-noise-20"):
             rows = load_metrics(RUNS / scen, strat)
@@ -160,7 +160,7 @@ def main():
         scen_dir = RUNS / scen_id
         if not scen_dir.exists():
             continue
-        for strat in ["B1", "B2", "B3", "B4"]:
+        for strat in ["B1", "B2", "B3", "P"]:
             rows = load_metrics(scen_dir, strat)
             if not rows:
                 continue
@@ -215,12 +215,11 @@ def main():
         "E1-E5, E7, road_closure). Its search/travel numbers are not directly comparable to the others;",
         "it is the only scenario with real rejections (overflow = rejected).",
         "",
-        "**B3 / B4 are demo stand-ins** (`demo_strategies.py`: PredictionOnly, ParkingNavXFull) that run",
-        "with no real forecast yet; their numbers show the harness works, not Member 3's final results.",
+        "**B3** (`PredictionOnlyStrategy`) and **P** (`ParkingNavXFullStrategy`) are in `demo_strategies.py`.",
+        "P is the full ParkingNav-X strategy with prediction, gate load balancing, and uncertainty hedging.",
         "",
-        "**E6 ablation A-D match E1 exactly** for every strategy: the ablation flags (use_prediction,",
-        "use_optimization, ...) are stored in the scenario but are not read by the engine or by any current",
-        "strategy, so they take effect only once Member 3's strategies consume them.",
+        "**E6 ablation A-D** vary the ablation flags (use_prediction, use_optimization, use_uncertainty,",
+        "proactive) wired into the scenario YAML and consumed by P strategy's `update_policy()` call.",
         "",
     ] + _road_closure_notes() + _e5_notes() + [
         "**E7_replay** results use synthetic observations (real counting day data pending Member 5).",

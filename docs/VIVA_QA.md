@@ -32,6 +32,8 @@ XGBoost was chosen because:
 3. It is compatible with split conformal prediction for uncertainty intervals without distributional assumptions.
 4. HistoricalAverage also performed well (comparable to XGBoost on synthetic data), which is expected because the synthetic demand model is periodic.
 
+Evaluation metrics computed: MAE, RMSE, MAPE, **WAPE** (Weighted Absolute Percentage Error = Σ|error| / Σ|actual| × 100), R², and 90% conformal coverage. WAPE is the primary metric cited in the spec because it is less sensitive than MAPE to near-zero targets.
+
 **Caveat:** On real data with more noise and irregular events, the gap between XGBoost and simple baselines would likely be larger.
 
 ---
@@ -170,7 +172,7 @@ The campus graph is a weighted directed graph (NetworkX `DiGraph`) loaded from `
 
 ## Q16. What is the B4 / P naming issue?
 
-Early code used `"B4"` as the internal key for `ParkingNavXFullStrategy`. The capstone spec uses `"P"`. Both now map to the same class. The batch runner (`run_all_experiments.py`) and API use `"P"` consistently after Phase 4 renaming. Old run directories may show the class name as the strategy label — these are valid results, just labelled differently.
+Early code used `"B4"` as the internal key for `ParkingNavXFullStrategy`. The capstone spec uses `"P"`. The `"B4"` alias has been fully removed from all code paths: `app.py`, `optimization/engine.py`, `run_batch.py`, and `run_all_experiments.py` all use `"P"`. Historical results in `all_results.json` that were recorded under the `"B4"` label have been relabelled to `"P"` in-place, so aggregated summaries and the comparison table are clean.
 
 ---
 
@@ -218,3 +220,23 @@ All three load through the same code paths (`config_loader.py`, `SimulationEngin
 - That ParkingNav-X is proven to reduce parking search time by any specific percentage at VIT-AP.
 - That the model generalises to real-world demand without validation on real data.
 - That the system is ready for operational deployment.
+
+---
+
+## Objective-to-Implementation-to-Evidence Matrix
+
+| System Objective | Implementing Module | Key Code Location | Evidence |
+|-----------------|--------------------|--------------------|----------|
+| Reduce parking search time | `ParkingNavXFullStrategy` (P) | `simulation/demo_strategies.py::assign()` | E1–E4 experiments: `avg_search_time_min` in `all_results.json` |
+| Reduce gate waiting/queue | Gate queue penalty in P strategy | `demo_strategies.py` `GATE_QUEUE_WEIGHT=50.0` | `avg_gate_queue`, `max_gate_queue` in experiment metrics |
+| Predict lot occupancy (15 min) | `XGBoostPredictor` + conformal intervals | `prediction/engine.py::predict()` | MAE, RMSE, WAPE, R², coverage in `prediction_metrics.json` |
+| Proactive rerouting before overflow | Forecast-trigger in optimizer | `optimization/engine.py::_check_proactive_trigger()` | PROACTIVE_REROUTE alerts in `/recommendations` response |
+| Multi-objective cost minimisation | `MultiObjectiveOptimizer` | `optimization/engine.py::compute_cost()` | `cost_J` field in experiment results; `/optimize` API |
+| Event-aware demand modelling | Scenario event injection | `simulation/engine.py`, `ScenarioConfig.events` | E2 (event placement) vs E1 (normal): demand spike visible in lot fill history |
+| Uncertainty-aware assignment | Conformal upper bound in P | `demo_strategies.py` `use_uncertainty` flag | E6-C vs E6-D ablation: overflow events differ |
+| Configurable campus topology | YAML-driven campus graph | `config_loader.py`, `configs/campus/vitap.yaml` | `test_config_validation.py` (54 tests pass) |
+| Reproducible experiments | Seeded RNG + run manifests | `simulation/engine.py::run()` seed parameter | Same seed → identical metrics (verified in `test_simulation.py`) |
+| Overflow prevention | Hard fill threshold (0.95) + J penalty | `demo_strategies.py`, `optimization/engine.py::overflow_penalty()` | `overflow_events_count` in experiment results |
+| Risk scoring and alerting | `RiskEngine` | `risk/engine.py::compute_all()` | `/risk/current` and `/risk/forecast` API responses; `test_risk.py` |
+| Ablation study (component contribution) | `ablation_flags` in `ScenarioConfig` | `simulation/engine.py` + `demo_strategies.py::update_policy()` | E6-A/B/C/D results in `all_results.json` |
+| Noise robustness | `ForecastNoiseInjector` | `simulation/engine.py::ForecastNoiseInjector.perturb()` | E5 noise experiments (levels 0, 10, 20) |

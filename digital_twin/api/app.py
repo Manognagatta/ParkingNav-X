@@ -46,18 +46,32 @@ STRATEGIES = {
     "B1": FirstAvailableStrategy(),
     "B2": NearestAvailableStrategy(),
     "B3": PredictionOnlyStrategy(),
-    "B4": ParkingNavXFullStrategy(),
     "P":  ParkingNavXFullStrategy(),
 }
 
 _graph_service = CampusGraphService()
 
+# ── Cached DB connection (migrations run once at startup, not per-request) ────
+_db_conn = None
+
 
 def get_conn():
-    conn = get_connection(DB_PATH)
-    apply_migrations(conn)
-    load_campus_config(CAMPUS_YAML, conn)
-    return conn
+    global _db_conn
+    if _db_conn is None:
+        _db_conn = get_connection(DB_PATH)
+        apply_migrations(_db_conn)
+        load_campus_config(CAMPUS_YAML, _db_conn)
+    return _db_conn
+
+
+@app.on_event("startup")
+def _startup_prewarm():
+    """Pre-warm the prediction engine so the first API request is not slow."""
+    try:
+        from digital_twin.prediction.engine import get_predictor
+        get_predictor()  # fits all models once; result cached as singleton
+    except Exception:
+        pass  # non-fatal — predictions will fall back to MovingAverage
 
 
 def _build_graph(conn):
@@ -68,7 +82,7 @@ def _build_graph(conn):
 
 class SimulateRequest(BaseModel):
     scenario: str = "E1_normal_day"
-    strategy: str = "B4"
+    strategy: str = "P"
 
 
 class PredictRequest(BaseModel):
@@ -87,7 +101,35 @@ class RouteRequest(BaseModel):
     mode: str = "drive"  # drive | walk
 
 
+class OperatorOverrideRequest(BaseModel):
+    lot_id: str
+    action: str          # "close" | "open" | "cap_override"
+    reason: str = ""
+    override_capacity: Optional[int] = None  # used with action="cap_override"
+
+
+class ObservationRecord(BaseModel):
+    timestamp: str           # ISO-8601
+    lot_id: str
+    occupied_spaces: int
+    gate_id: Optional[str] = None
+    vehicle_count: Optional[int] = None
+    source: str = "sensor"   # sensor | manual | synthetic
+
+
 # ── Routes ────────────────────────────────────────────────────────────────────
+
+@app.get("/health", tags=["Info"])
+def health():
+    """Liveness check — returns 200 when the API is up and the DB is reachable."""
+    try:
+        conn = get_conn()
+        conn.execute("SELECT 1").fetchone()
+        db_ok = True
+    except Exception:
+        db_ok = False
+    return {"status": "ok" if db_ok else "degraded", "db": db_ok, "version": "2.0.0"}
+
 
 @app.get("/", tags=["Info"])
 def root():
@@ -115,7 +157,6 @@ def get_campus():
     dests = conn.execute(
         "SELECT destination_id, name, category, latitude, longitude, nearest_parking_lot_ids FROM destinations WHERE campus_id='vitap'"
     ).fetchall()
-    conn.close()
 
     return {
         "campus_id": "vitap",
@@ -152,12 +193,102 @@ def get_campus():
     }
 
 
+@app.post("/operator/override", tags=["Operator"])
+def operator_override(req: OperatorOverrideRequest):
+    """
+    Operator override: close/reopen a lot or change its usable capacity.
+    Changes take effect immediately in the live Digital Twin state.
+    """
+    conn = get_conn()
+    row = conn.execute(
+        "SELECT usable_capacity, status FROM parking_lots WHERE campus_id='vitap' AND parking_lot_id=?",
+        (req.lot_id,)
+    ).fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail=f"Lot '{req.lot_id}' not found")
+
+    allowed_actions = {"close", "open", "cap_override"}
+    if req.action not in allowed_actions:
+        raise HTTPException(status_code=400, detail=f"action must be one of {allowed_actions}")
+
+    if req.action == "close":
+        conn.execute(
+            "UPDATE parking_lots SET status='closed' WHERE campus_id='vitap' AND parking_lot_id=?",
+            (req.lot_id,)
+        )
+        new_status, new_cap = "closed", row[0]
+    elif req.action == "open":
+        conn.execute(
+            "UPDATE parking_lots SET status='open' WHERE campus_id='vitap' AND parking_lot_id=?",
+            (req.lot_id,)
+        )
+        new_status, new_cap = "open", row[0]
+    else:  # cap_override
+        if req.override_capacity is None or req.override_capacity <= 0:
+            raise HTTPException(status_code=400, detail="override_capacity must be a positive integer")
+        conn.execute(
+            "UPDATE parking_lots SET usable_capacity=? WHERE campus_id='vitap' AND parking_lot_id=?",
+            (req.override_capacity, req.lot_id)
+        )
+        new_status, new_cap = row[1], req.override_capacity
+
+    conn.commit()
+    return {
+        "lot_id": req.lot_id,
+        "action": req.action,
+        "new_status": new_status,
+        "new_usable_capacity": new_cap,
+        "reason": req.reason,
+        "note": "Override applied to live DB. Run /simulate to propagate into next simulation.",
+    }
+
+
+@app.post("/observations", tags=["Campus"])
+def post_observation(obs: ObservationRecord):
+    """
+    Ingest a single occupancy observation into lot_occupancy_history.
+    Updates the live Digital Twin state so risk/prediction endpoints reflect it.
+    """
+    conn = get_conn()
+    # Validate lot exists
+    row = conn.execute(
+        "SELECT usable_capacity FROM parking_lots WHERE campus_id='vitap' AND parking_lot_id=?",
+        (obs.lot_id,)
+    ).fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail=f"Lot '{obs.lot_id}' not found")
+    cap = row[0]
+    if obs.occupied_spaces < 0 or obs.occupied_spaces > cap:
+        raise HTTPException(
+            status_code=400,
+            detail=f"occupied_spaces {obs.occupied_spaces} out of range [0, {cap}]"
+        )
+    fill_rate = round(obs.occupied_spaces / cap, 4) if cap > 0 else 0.0
+    try:
+        conn.execute(
+            """INSERT INTO lot_occupancy_history (lot_id, occupied_spaces, fill_rate, recorded_at)
+               VALUES (?, ?, ?, ?)""",
+            (obs.lot_id, obs.occupied_spaces, fill_rate, obs.timestamp)
+        )
+        conn.commit()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"DB write failed: {e}")
+    return {
+        "accepted": True,
+        "lot_id": obs.lot_id,
+        "occupied_spaces": obs.occupied_spaces,
+        "fill_rate": fill_rate,
+        "timestamp": obs.timestamp,
+        "source": obs.source,
+        "note": "[SYNTHETIC] Observation recorded; risk/prediction endpoints will reflect updated state.",
+    }
+
+
 @app.get("/campus/graph", tags=["Campus"])
 def get_campus_graph():
     """Return full campus graph (nodes + edges) for routing visualization."""
     conn = get_conn()
     graph = _build_graph(conn)
-    conn.close()
     return _graph_service.to_json(graph)
 
 
@@ -213,8 +344,6 @@ def simulate(req: SimulateRequest):
                 pass
         conn.commit()
 
-    conn.close()
-
     m = result.metrics
     return {
         "run_id": run_id,
@@ -260,7 +389,6 @@ def compare_strategies(scenario: str):
             "avg_gate_queue":      round(m["avg_gate_queue"], 2)      if m.get("avg_gate_queue")      is not None else None,
             "peak_gate_queue":     m.get("max_gate_queue"),
         }
-    conn.close()
     return {"scenario": scenario, "comparison": results}
 
 
@@ -270,7 +398,6 @@ def get_events():
     rows = conn.execute(
         "SELECT event_id, event_type, name, start_time, end_time, status FROM events WHERE campus_id='vitap'"
     ).fetchall()
-    conn.close()
     return {
         "campus": "vitap",
         "events": [
@@ -293,7 +420,6 @@ def get_route(origin: str, destination: str, mode: str = "drive"):
     """
     conn = get_conn()
     graph = _build_graph(conn)
-    conn.close()
 
     if origin not in graph:
         raise HTTPException(status_code=404, detail=f"Origin '{origin}' not found in campus graph")
@@ -395,8 +521,6 @@ def find_parking(destination_id: str, gate_id: str = "vitap-gate-main"):
         (destination_id,)
     ).fetchone()
 
-    conn.close()
-
     if not dest_row:
         raise HTTPException(status_code=404, detail=f"Destination '{destination_id}' not found")
 
@@ -473,6 +597,22 @@ def find_parking(destination_id: str, gate_id: str = "vitap-gate-main"):
         if is_preferred:
             score *= 0.85  # 15% bonus for recommended lots
 
+        # Cost breakdown for this lot (M4/M9 spec: expose individual cost components)
+        fill_penalty_norm = min(1.0, fill_rate * 1.2)
+        drive_norm = min(1.0, drive_t / 600.0)   # 600s = 10 min reference
+        walk_norm = min(1.0, walk_t / 600.0)
+        cost_breakdown = {
+            "search_travel_cost": round(0.4 * drive_norm + 0.4 * walk_norm, 4),
+            "fill_penalty_cost": round(0.2 * fill_penalty_norm, 4),
+            "total_score": round(score, 1),
+            "components": {
+                "drive_time_seconds": round(drive_t),
+                "walk_time_seconds": round(walk_t),
+                "fill_rate": round(fill_rate, 3),
+                "fill_penalty_seconds": round(fill_rate * 300),
+            },
+        }
+        pred_detail = preds.get(lot_id, {})
         options.append({
             "lot_id": lot_id,
             "lot_name": lot_name,
@@ -480,6 +620,10 @@ def find_parking(destination_id: str, gate_id: str = "vitap-gate-main"):
             "estimated_available": max(0, available),
             "predicted_fill_rate": round(fill_rate, 3),
             "predicted_fill_pct": round(fill_rate * 100, 1),
+            "prediction_interval_90": {
+                "lower_pct": round(float(pred_detail.get("lower_90", fill_rate * 0.9)) * 100, 1),
+                "upper_pct": round(float(pred_detail.get("upper_90", min(1.0, fill_rate * 1.1))) * 100, 1),
+            } if pred_detail else None,
             "is_preferred_for_destination": is_preferred,
             "drive_route": drive_route,
             "walk_route": walk_route,
@@ -488,10 +632,32 @@ def find_parking(destination_id: str, gate_id: str = "vitap-gate-main"):
             "drive_time_minutes": round(drive_t / 60, 1),
             "walk_time_minutes": round(walk_t / 60, 1),
             "score": round(score, 1),
+            "cost_breakdown": cost_breakdown,
             "recommendation_reason": _explain(lot_name, fill_rate, drive_t, walk_t, is_preferred),
         })
 
     options.sort(key=lambda x: x["score"])
+
+    # Assign ranks and build structured explanation for top choice (M9)
+    for i, opt in enumerate(options):
+        opt["rank"] = i + 1
+    best = options[0] if options else None
+    explanation = None
+    if best:
+        pred_d = preds.get(best["lot_id"], {})
+        explanation = _explain_structured(
+            lot_id=best["lot_id"],
+            lot_name=best["lot_name"],
+            fill_rate=best["predicted_fill_rate"],
+            drive_t=best["drive_route"]["time_seconds"],
+            walk_t=best["walk_route"]["time_seconds"],
+            preferred=best["is_preferred_for_destination"],
+            lower_90=float(pred_d.get("lower_90", best["predicted_fill_rate"] * 0.9)) if pred_d else None,
+            upper_90=float(pred_d.get("upper_90", min(1.0, best["predicted_fill_rate"] * 1.1))) if pred_d else None,
+            objective_score=best["score"],
+            rank=1,
+            alternatives=options[1:3],
+        )
 
     return {
         "destination_id": destination_id,
@@ -499,7 +665,8 @@ def find_parking(destination_id: str, gate_id: str = "vitap-gate-main"):
         "destination_category": dest_row[2],
         "gate_used": gate_id,
         "options_count": len(options),
-        "best": options[0] if options else None,
+        "best": best,
+        "explanation": explanation,
         "options": options[:5],  # top 5
         "note": "[SYNTHETIC] Fill rates from XGBoost model trained on synthetic data. Not real occupancy.",
     }
@@ -517,6 +684,45 @@ def _explain(lot_name, fill_rate, drive_t, walk_t, preferred):
         parts.append(f"Near capacity ({fill_rate*100:.0f}%) — consider alternatives")
     parts.append(f"{round(drive_t/60, 1)} min drive + {round(walk_t/60, 1)} min walk")
     return ". ".join(parts)
+
+
+def _explain_structured(lot_id, lot_name, fill_rate, drive_t, walk_t, preferred,
+                         lower_90=None, upper_90=None, objective_score=None, rank=None,
+                         risk_level=None, alternatives=None):
+    """Return a structured explanation object matching M9 spec requirements."""
+    if fill_rate < 0.5:
+        occupancy_status = "low"
+    elif fill_rate < 0.80:
+        occupancy_status = "moderate"
+    elif fill_rate < 0.90:
+        occupancy_status = "high"
+    else:
+        occupancy_status = "critical"
+
+    explanation = {
+        "lot_id": lot_id,
+        "lot_name": lot_name,
+        "chosen": preferred or (rank == 1),
+        "current_fill_pct": round(fill_rate * 100, 1),
+        "occupancy_status": occupancy_status,
+        "predicted_fill_pct": round(fill_rate * 100, 1),
+        "prediction_interval_90": (
+            {"lower_pct": round((lower_90 or fill_rate) * 100, 1),
+             "upper_pct": round((upper_90 or fill_rate) * 100, 1)}
+            if lower_90 is not None else None
+        ),
+        "drive_time_min": round(drive_t / 60, 1),
+        "walk_time_min": round(walk_t / 60, 1),
+        "total_time_min": round((drive_t + walk_t) / 60, 1),
+        "risk_level": risk_level or ("HIGH" if fill_rate >= 0.90 else "MEDIUM" if fill_rate >= 0.75 else "LOW"),
+        "objective_score": round(objective_score, 4) if objective_score is not None else None,
+        "rank": rank,
+        "preferred_for_destination": preferred,
+        "why_chosen": _explain(lot_name, fill_rate, drive_t, walk_t, preferred),
+        "alternatives_count": len(alternatives) if alternatives else 0,
+        "fallback_used": False,
+    }
+    return explanation
 
 
 # ── Prediction endpoints ───────────────────────────────────────────────────────
@@ -539,7 +745,7 @@ def predict_occupancy(lot_id: str = "vitap-lot-academic-main", horizon_minutes: 
             "data_source": "[SYNTHETIC] Trained on synthetic demand data",
         }
     except Exception as e:
-        return {"lot_id": lot_id, "error": str(e), "predicted_fill_rate": None}
+        raise HTTPException(status_code=500, detail=f"Prediction failed: {e}")
 
 
 @app.get("/predict/all", tags=["Prediction"])
@@ -572,7 +778,7 @@ def predict_all_lots(horizon_minutes: int = 15):
             "data_source": "[SYNTHETIC] XGBoost model on synthetic demand data",
         }
     except Exception as e:
-        return {"error": str(e), "predictions": []}
+        raise HTTPException(status_code=500, detail=f"Prediction failed: {e}")
 
 
 # ── Risk endpoints ─────────────────────────────────────────────────────────────
@@ -585,10 +791,9 @@ def get_current_risk():
         conn = get_conn()
         re = RiskEngine(conn)
         scores = re.compute_all()
-        conn.close()
         return {"status": "ok", "risks": scores}
     except Exception as e:
-        return {"status": "error", "error": str(e)}
+        raise HTTPException(status_code=500, detail=f"Risk computation failed: {e}")
 
 
 @app.get("/risk/forecast", tags=["Risk"])
@@ -601,10 +806,9 @@ def get_risk_forecast(horizon: int = 15):
         predictor = get_predictor()
         re = RiskEngine(conn, predictor=predictor)
         scores = re.compute_forecast(horizon_minutes=horizon)
-        conn.close()
         return {"horizon_minutes": horizon, "risks": scores}
     except Exception as e:
-        return {"horizon_minutes": horizon, "error": str(e)}
+        raise HTTPException(status_code=500, detail=f"Risk forecast failed: {e}")
 
 
 # ── Optimization endpoints ─────────────────────────────────────────────────────
@@ -612,32 +816,38 @@ def get_risk_forecast(horizon: int = 15):
 @app.post("/optimize", tags=["Optimization"])
 def optimize(req: OptimizeRequest):
     try:
+        import time as _time
         from digital_twin.optimization.engine import MultiObjectiveOptimizer
         conn = get_conn()
         opt = MultiObjectiveOptimizer(weight_profile=req.weight_profile)
+        t0 = _time.perf_counter()
         recommendations = opt.generate_recommendations(conn)
-        conn.close()
+        latency_ms = round((_time.perf_counter() - t0) * 1000, 2)
         return {
             "scenario": req.scenario,
             "weight_profile": req.weight_profile,
+            "latency_ms": latency_ms,
+            "fallback_used": any(r.get("type") == "FALLBACK" for r in recommendations),
             "recommendations": recommendations,
         }
     except Exception as e:
-        return {"error": str(e), "recommendations": []}
+        raise HTTPException(status_code=500, detail=f"Optimization failed: {e}")
 
 
 @app.get("/recommendations", tags=["Optimization"])
 def get_recommendations():
     """Get latest proactive parking recommendations."""
     try:
+        import time as _time
         from digital_twin.optimization.engine import MultiObjectiveOptimizer
         conn = get_conn()
         opt = MultiObjectiveOptimizer()
+        t0 = _time.perf_counter()
         recs = opt.generate_recommendations(conn)
-        conn.close()
-        return {"recommendations": recs, "count": len(recs)}
+        latency_ms = round((_time.perf_counter() - t0) * 1000, 2)
+        return {"recommendations": recs, "count": len(recs), "latency_ms": latency_ms}
     except Exception as e:
-        return {"recommendations": [], "error": str(e)}
+        raise HTTPException(status_code=500, detail=f"Recommendations failed: {e}")
 
 
 # ── Experiments endpoints ──────────────────────────────────────────────────────
@@ -783,8 +993,6 @@ def run_experiment(req: ExperimentRunRequest):
                 rec = {"run_id": run_id, "scenario": req.scenario,
                        "strategy": strategy_code, "seed": seed,
                        "error": str(e), "status": "error"}
-            finally:
-                conn.close()
             new_results.append(rec)
 
     # Persist

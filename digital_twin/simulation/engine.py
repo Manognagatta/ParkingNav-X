@@ -349,6 +349,15 @@ class SimulationEngine:
             for tc in (scenario.availability_overrides or {}).get("timed_closures", [])
         ]
 
+        # Create noise injector once so its RNG advances across cycles (not reset each decision tick)
+        _noise_injector = None
+        if scenario.prediction_error_injection_level > 0.0:
+            from digital_twin.simulation.forecast_noise import ForecastNoiseInjector
+            _noise_injector = ForecastNoiseInjector(
+                noise_level=scenario.prediction_error_injection_level,
+                seed=scenario.random_seed + 9999,
+            )
+
         for tick in range(scenario.duration_minutes * tpm):
             minute = tick // tpm
             minute_end = (tick + 1) % tpm == 0
@@ -412,16 +421,11 @@ class SimulationEngine:
                             predictor.update_current(lot_id, occ / cap)
                         forecast = predictor.get_forecast_snapshot(horizon_minutes=15)
                         # Inject noise if configured (E5 robustness scenarios)
-                        if scenario.prediction_error_injection_level > 0.0:
-                            from digital_twin.simulation.forecast_noise import ForecastNoiseInjector
-                            injector = ForecastNoiseInjector(
-                                noise_level=scenario.prediction_error_injection_level,
-                                seed=scenario.random_seed + 9999,  # independent noise stream
-                            )
+                        if _noise_injector is not None:
                             lot_fills = forecast.get("lot_fill_rates", {})
                             noisy_fills = {}
                             for lid, fill in lot_fills.items():
-                                noisy_fc = injector.perturb({"occupancy": fill})
+                                noisy_fc = _noise_injector.perturb({"occupancy": fill})
                                 noisy_fills[lid] = min(1.0, max(0.0, noisy_fc.get("occupancy", fill)))
                             forecast = {**forecast, "lot_fill_rates": noisy_fills}
                     except Exception as _pred_err:
@@ -695,6 +699,14 @@ class SimulationEngine:
                             commit=False,
                         )
                 conn.commit()  # one batched commit per simulated minute instead of one per write
+
+                # ── Spec invariant assertions (checked once per simulated minute) ─
+                for _lid, _lot in parking_lots.items():
+                    assert _lot["occupied_spaces"] >= 0, \
+                        f"Invariant violated: lot '{_lid}' has negative occupancy ({_lot['occupied_spaces']})"
+                    assert _lot["occupied_spaces"] <= _lot["usable_capacity"], \
+                        f"Invariant violated: lot '{_lid}' occupancy ({_lot['occupied_spaces']}) > capacity ({_lot['usable_capacity']})"
+                    # closed-lot invariant: engine enforces no new assignments at strategy level
 
                 overflow_this_tick = {e["parking_lot_id"] for e in overflow_events if e["tick"] == minute}
                 timesteps_metrics.append({

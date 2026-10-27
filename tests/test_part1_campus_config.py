@@ -88,8 +88,13 @@ def test_road_referencing_unknown_node_rejected():
 
 def test_orphan_node_rejected():
     raw = load_yaml("sample.yaml")
-    raw["destinations"].append({
-        "destination_id": "orphan-dest", "name": "Orphan", "category": "other",
+    # Add a parking lot with no edges — destinations are walk-path endpoints and
+    # are intentionally excluded from the drive-graph orphan check; use a lot instead.
+    raw["parking_lots"].append({
+        "parking_lot_id": "vitap-lot-orphan", "name": "Orphan Lot",
+        "campus_id": "vitap", "total_capacity": 10, "usable_capacity": 10,
+        "reserved_capacity": 0, "restricted_capacity": 0,
+        "temporarily_unavailable_capacity": 0,
         "latitude": 10.0, "longitude": 20.0,
     })
     errors = validate_campus_config(raw)

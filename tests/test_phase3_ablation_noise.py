@@ -84,7 +84,7 @@ class TestAblationFlags:
         assert result.parking_lot_id in ("lot-a", "lot-b")
 
     def test_use_optimization_false_uses_vehicle_gate(self):
-        """When use_optimization=False, preferred_gate must equal vehicle.entry_gate."""
+        """When use_optimization=False, gate_id in result must equal vehicle.entry_gate."""
         import networkx as nx
         from digital_twin.simulation.demo_strategies import ParkingNavXFullStrategy
         from digital_twin.simulation.strategy import CampusState, Vehicle
