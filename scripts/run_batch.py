@@ -29,12 +29,11 @@ from digital_twin.simulation.strategy import (  # noqa: E402
 
 SCENARIO_DIR = ROOT / "configs" / "scenarios" / "vitap"
 CAMPUS_YAML = ROOT / "configs" / "campus" / "vitap.yaml"
-# B3/B4 are the demo stand-ins in demo_strategies.py (no real forecast yet); Member 3 replaces them
 STRATEGIES = {
     "B1": FirstAvailableStrategy,
     "B2": NearestAvailableStrategy,
     "B3": PredictionOnlyStrategy,
-    "B4": ParkingNavXFullStrategy,
+    "P":  ParkingNavXFullStrategy,
 }
 
 
@@ -60,7 +59,7 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--scenarios", required=True, help="Comma-separated scenario file stems, or 'all'")
     ap.add_argument("--seeds", default="0-29", help="e.g. 0-29 or 0,5,9")
-    ap.add_argument("--strategies", default="B1,B2", help="any of B1,B2,B3,B4")
+    ap.add_argument("--strategies", default="B1,B2", help="any of B1,B2,B3,P")
     ap.add_argument("--jobs", type=int, default=1, help="parallel worker processes (each run is independent and seeded)")
     args = ap.parse_args()
 

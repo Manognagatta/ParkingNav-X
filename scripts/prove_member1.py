@@ -243,7 +243,7 @@ print(f"""
   O1  Digital Twin (campus config)   DONE - 2 gates, 5 lots, roads, 13 dest
   O2  Simulation engine              DONE - deterministic, reproducible
   M2  State engine                   DONE - live dynamic state
-  M4  Baseline strategies (B1-B4)    DONE - all 4 strategies running
+  M4  Baseline strategies (B1-B3,P)  DONE - all 4 strategies running
   E1-E7 Experiments                  DONE - all saved to runs/
   Scalability                        DONE - 500+ vehicles tested
   Reproducibility                    DONE - same seed = identical output

@@ -30,8 +30,8 @@ _STRATEGIES: dict = {
     "NearestAvailable": NearestAvailableStrategy,
     "B1": FirstAvailableStrategy,
     "B2": NearestAvailableStrategy,
-    "B3": PredictionOnlyStrategy,       # demo stand-in (no real forecast yet)
-    "B4": ParkingNavXFullStrategy,      # demo stand-in
+    "B3": PredictionOnlyStrategy,
+    "P":  ParkingNavXFullStrategy,
 }
 
 

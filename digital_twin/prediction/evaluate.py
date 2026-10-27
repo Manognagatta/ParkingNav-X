@@ -15,13 +15,16 @@ RESULTS_DIR = Path(__file__).resolve().parent.parent.parent / "experiments" / "r
 
 
 def evaluate_predictor(predictor_name: str, predictions: np.ndarray, targets: np.ndarray) -> dict:
-    """Compute MAE, RMSE, MAPE, R² for a set of predictions vs targets."""
+    """Compute MAE, RMSE, MAPE, WAPE, R² for a set of predictions vs targets."""
     errors = predictions - targets
     mae = float(np.mean(np.abs(errors)))
     rmse = float(math.sqrt(np.mean(errors ** 2)))
     # MAPE: skip targets near zero
     mask = np.abs(targets) > 0.01
     mape = float(np.mean(np.abs(errors[mask] / targets[mask])) * 100) if mask.any() else float("nan")
+    # WAPE (Weighted Absolute Percentage Error): sum(|e|) / sum(|target|)
+    sum_targets = float(np.sum(np.abs(targets)))
+    wape = float(np.sum(np.abs(errors)) / sum_targets * 100) if sum_targets > 0 else float("nan")
     # R²
     ss_res = float(np.sum(errors ** 2))
     ss_tot = float(np.sum((targets - targets.mean()) ** 2))
@@ -32,6 +35,7 @@ def evaluate_predictor(predictor_name: str, predictions: np.ndarray, targets: np
         "rmse": round(rmse, 4),
         "r2": round(r2, 4) if not math.isnan(r2) else None,
         "mape_pct": round(mape, 2) if not math.isnan(mape) else None,
+        "wape_pct": round(wape, 2) if not math.isnan(wape) else None,
         "n_samples": int(len(predictions)),
     }
 
@@ -136,7 +140,8 @@ if __name__ == "__main__":
         xgb = r.get("xgboost", {})
         print(
             f"{r['lot_id']}: "
-            f"HA MAE={ha.get('mae')} R²={ha.get('r2')} | "
-            f"MA MAE={ma.get('mae')} R²={ma.get('r2')} | "
-            f"XGB MAE={xgb.get('mae')} R²={xgb.get('r2')} coverage={xgb.get('coverage_90')}"
+            f"HA MAE={ha.get('mae')} WAPE={ha.get('wape_pct')}% R²={ha.get('r2')} | "
+            f"MA MAE={ma.get('mae')} WAPE={ma.get('wape_pct')}% R²={ma.get('r2')} | "
+            f"XGB MAE={xgb.get('mae')} WAPE={xgb.get('wape_pct')}% R²={xgb.get('r2')} "
+            f"coverage={xgb.get('coverage_90')}"
         )

@@ -159,7 +159,18 @@ class MultiObjectiveOptimizer:
             rows = conn.execute(
                 "SELECT gate_id, capacity FROM gates WHERE campus_id='vitap'"
             ).fetchall()
-            return {r[0]: {"capacity": r[1], "queue_length": 0} for r in rows}
+            states = {r[0]: {"capacity": r[1], "queue_length": 0} for r in rows}
+            # Pull live queue lengths from gate_state (written by simulation engine)
+            for gate_id in states:
+                row = conn.execute(
+                    """SELECT current_queue_length FROM gate_state
+                       WHERE campus_id='vitap' AND gate_id=?
+                       ORDER BY ingestion_timestamp DESC LIMIT 1""",
+                    (gate_id,)
+                ).fetchone()
+                if row:
+                    states[gate_id]["queue_length"] = row[0]
+            return states
         except Exception:
             return {"vitap-gate-main": {"capacity": 6, "queue_length": 0}}
 
@@ -334,7 +345,7 @@ class MultiObjectiveOptimizer:
             "B1": FirstAvailableStrategy(),
             "B2": NearestAvailableStrategy(),
             "B3": PredictionOnlyStrategy(),
-            "B4": ParkingNavXFullStrategy(),
+            "P":  ParkingNavXFullStrategy(),
         }
         strategy = strategies.get(strategy_code, strategies["B2"])
         sc = ScenarioLoader.load(scenario_file)
@@ -343,9 +354,10 @@ class MultiObjectiveOptimizer:
         result = engine.run(sc, strategy, conn, run_id=run_id)
         m = result.metrics
 
-        # Compute cost function J from simulation metrics
-        lot_fills = {lid: 0.5 for lid in LOT_IDS}  # placeholder
-        cost = self.compute_cost(lot_fills, {})
+        # Compute cost function J from actual simulation lot fill rates
+        lot_fills = self._get_current_fills(conn)
+        gate_states = self._get_gate_states(conn)
+        cost = self.compute_cost(lot_fills, gate_states)
 
         return {
             "scenario": scenario,

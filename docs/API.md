@@ -82,7 +82,7 @@ Run a simulation scenario with a chosen strategy.
 ```
 
 - `scenario`: YAML stem from `configs/scenarios/vitap/` (default: `E1_normal_day`)
-- `strategy`: one of `B1`, `B2`, `B3`, `P` (default: `B4` alias for `P`)
+- `strategy`: one of `B1`, `B2`, `B3`, `P` (default: `"P"`)
 
 **Response:**
 ```json

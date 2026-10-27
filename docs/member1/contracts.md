@@ -61,7 +61,7 @@ from digital_twin.api_functions import register_strategy, run_simulation
 register_strategy("MyOptimizer", MyOptimizer)          # zero-arg factory
 run_id = run_simulation("configs/scenarios/vitap/E2_event_placement.yaml", "MyOptimizer", seed=0)
 ```
-The engine calls `assign()` per served vehicle (200 ms timeout; exception, timeout or infeasible result falls back to NearestAvailable and is logged) and `update_policy(state, forecast)` every 5 simulated minutes (`forecast=None` until Member 2's predictor is wired in). B3/B4 are demo stand-ins in `demo_strategies.py`.
+The engine calls `assign()` per served vehicle (200 ms timeout; exception, timeout or infeasible result falls back to NearestAvailable and is logged) and `update_policy(state, forecast)` every 5 simulated minutes (`forecast=None` until Member 2's predictor is wired in). B3 (PredictionOnly) and P (ParkingNavXFull) are in `demo_strategies.py`.
 
 **Strategy interface** (`digital_twin/simulation/strategy.py`):
 ```python

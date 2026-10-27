@@ -14,6 +14,8 @@ Each risk score ∈ [0, 1]:  0 = no risk, 1 = critical.
 import math
 from typing import Dict, Optional
 
+# Single source of truth for lot/gate capacities
+from digital_twin.prediction.features import LOT_CAPACITIES  # noqa: F401
 
 # Thresholds
 OVERFLOW_THRESHOLD = 0.90     # fill rate above which overflow is imminent
@@ -21,13 +23,10 @@ GATE_QUEUE_CRITICAL = 10      # queue length considered critical
 ROAD_LOAD_CRITICAL = 0.80     # fraction of road capacity that is critical
 SEARCH_FILL_CRITICAL = 0.95   # fill rate making search very difficult
 
-LOT_CAPACITIES = {
-    "vitap-lot-academic-main": 108,
-    "vitap-lot-hostel": 162,
-    "vitap-lot-admin-visitor": 72,
-    "vitap-lot-sports": 84,
-    "vitap-lot-overflow": 46,
-}
+# Hysteresis: once a risk level fires, it stays until score drops below HYSTERESIS_OFF
+# Prevents alert flapping when fill oscillates around the threshold.
+HYSTERESIS_ON  = 0.50   # alert fires when score exceeds this
+HYSTERESIS_OFF = 0.40   # alert clears only when score drops below this
 
 GATE_CAPACITIES = {
     "vitap-gate-main": 6,     # vehicles/minute
@@ -51,6 +50,8 @@ class RiskEngine:
     def __init__(self, conn=None, predictor=None):
         self._conn = conn
         self._predictor = predictor  # optional PredictionEngine instance
+        # Hysteresis state: entity_id -> bool (True = alert currently active)
+        self._alert_state: dict = {}
 
     def _get_lot_states(self) -> Dict[str, Dict]:
         """Query current lot occupancy from DB."""
@@ -98,12 +99,13 @@ class RiskEngine:
                 "queue_length": 0,  # live data would come from simulation
                 "status": status or "open",
             }
-        # Try to pull from gate_queue_history
+        # Pull from gate_state table (written by twin_service after each simulate call)
         try:
             for gate_id in states:
                 row = self._conn.execute(
-                    """SELECT queue_length FROM gate_queue_history
-                       WHERE gate_id=? ORDER BY recorded_at DESC LIMIT 1""",
+                    """SELECT current_queue_length FROM gate_state
+                       WHERE campus_id='vitap' AND gate_id=?
+                       ORDER BY ingestion_timestamp DESC LIMIT 1""",
                     (gate_id,)
                 ).fetchone()
                 if row:
@@ -111,6 +113,18 @@ class RiskEngine:
         except Exception:
             pass
         return states
+
+    def _apply_hysteresis(self, entity_id: str, score: float) -> float:
+        """Return hysteresis-smoothed score — prevents alert flapping around threshold."""
+        active = self._alert_state.get(entity_id, False)
+        if not active and score >= HYSTERESIS_ON:
+            self._alert_state[entity_id] = True
+        elif active and score < HYSTERESIS_OFF:
+            self._alert_state[entity_id] = False
+        # When alert is active, hold score at least at HYSTERESIS_ON so severity doesn't drop
+        if self._alert_state.get(entity_id, False):
+            return max(score, HYSTERESIS_ON)
+        return score
 
     def overflow_risk(self, lot_states: Dict[str, Dict]) -> Dict[str, float]:
         """Risk that a lot will overflow (fill > 90% of capacity)."""
@@ -126,7 +140,7 @@ class RiskEngine:
             fill = state["occupied"] / cap
             # Risk rises sharply above OVERFLOW_THRESHOLD
             risk = _sigmoid(fill, midpoint=OVERFLOW_THRESHOLD, steepness=20.0)
-            risks[lot_id] = round(risk, 4)
+            risks[lot_id] = round(self._apply_hysteresis(lot_id, risk), 4)
         return risks
 
     def gate_queue_risk(self, gate_states: Dict[str, Dict]) -> Dict[str, float]:
@@ -138,25 +152,47 @@ class RiskEngine:
                 continue
             queue = state.get("queue_length", 0)
             risk = _sigmoid(queue, midpoint=GATE_QUEUE_CRITICAL * 0.5, steepness=0.3)
-            risks[gate_id] = round(risk, 4)
+            risks[gate_id] = round(self._apply_hysteresis(gate_id, risk), 4)
         return risks
 
     def road_congestion_risk(self) -> Dict[str, float]:
-        """Risk from road congestion (load vs. capacity)."""
+        """Risk from road congestion (load vs. capacity).
+
+        Load is sourced from the most recent simulation run's timestep road_load metrics,
+        stored in the simulation_metrics table.  Falls back to 0.0 when no run data exists.
+        """
         risks = {}
         if self._conn is None:
             return risks
         try:
             rows = self._conn.execute(
-                "SELECT road_id, capacity, status FROM roads WHERE campus_id='vitap' AND road_type='driveable'"
+                "SELECT road_id, capacity, status FROM roads WHERE campus_id='vitap' AND is_driveable=1"
             ).fetchall()
+            # Pull latest road load values from road_state (written by engine every simulated minute)
+            road_loads: dict = {}
+            try:
+                load_rows = self._conn.execute(
+                    """SELECT road_id, current_load FROM road_state
+                       WHERE campus_id='vitap'
+                       ORDER BY ingestion_timestamp DESC LIMIT 100"""
+                ).fetchall()
+                seen: set = set()
+                for rid, load in load_rows:
+                    if rid not in seen:
+                        road_loads[rid] = float(load) if load is not None else 0.0
+                        seen.add(rid)
+            except Exception:
+                pass
+
             for row in rows:
                 road_id, cap, status = row[0], row[1], row[2]
                 if status != "open":
                     risks[road_id] = 0.8
                     continue
-                # No live load data → use 0 risk as default
-                risks[road_id] = 0.0
+                load = road_loads.get(road_id, 0.0)
+                cap_ref = float(cap) if cap and cap > 0 else 10.0
+                load_ratio = min(1.0, load / cap_ref)
+                risks[road_id] = round(_sigmoid(load_ratio, midpoint=ROAD_LOAD_CRITICAL, steepness=10.0), 4)
         except Exception:
             pass
         return risks

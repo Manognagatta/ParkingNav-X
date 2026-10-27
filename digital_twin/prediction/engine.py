@@ -23,7 +23,16 @@ from digital_twin.prediction.features import (
 )
 
 _PREDICTOR_SINGLETON: Optional["PredictionEngine"] = None
+_DEMAND_DF = None  # cached DataFrame — loaded once, reused by all predict() calls
 MODEL_DIR = Path(__file__).resolve().parent.parent.parent / "experiments" / "models"
+
+
+def _get_demand_df():
+    """Return the demand DataFrame, loading it once and caching it."""
+    global _DEMAND_DF
+    if _DEMAND_DF is None:
+        _DEMAND_DF = load_data()
+    return _DEMAND_DF
 
 
 class HistoricalAveragePredictor:
@@ -182,7 +191,7 @@ class PredictionEngine:
 
     def fit_all(self, horizon_steps: int = 1):
         """Train all predictors on synthetic_multi_year_demand.csv."""
-        df = load_data()
+        df = _get_demand_df()
         for lot_id in LOT_IDS:
             self._ha.fit(df, lot_id, horizon_steps)
             self._ma.fit(df, lot_id, horizon_steps)
@@ -204,7 +213,7 @@ class PredictionEngine:
 
         # Try XGBoost first
         if lot_id in self._xgb._models:
-            df = load_data()
+            df = _get_demand_df()
             lot_df = df[df["lot_id"] == lot_id] if "lot_id" in df.columns else df
             if len(lot_df) > 0:
                 X, y, ts = build_features(lot_df, lot_id, max(1, horizon_minutes // 15))

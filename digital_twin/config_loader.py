@@ -235,9 +235,11 @@ def _validate_db_schema(raw: dict) -> list:
         if lat is not None and lng is not None:
             node_coords[lot_id] = (lat, lng)
 
+    destination_node_ids = set()
     for d in destinations:
         dest_id = d.get("destination_id")
         node_ids.add(dest_id)
+        destination_node_ids.add(dest_id)
         lat, lng = d.get("latitude"), d.get("longitude")
         _check_coords(lat, lng, f"Destination '{dest_id}'")
         if lat is not None and lng is not None:
@@ -295,6 +297,8 @@ def _validate_db_schema(raw: dict) -> list:
             errors.append(f"Edge references unknown to_node_id '{e.get('to_node_id')}'.")
 
     for node_id in node_ids:
+        if node_id in destination_node_ids:
+            continue  # destinations are walk-path endpoints; they have no drive edges
         if node_id not in edge_connected_nodes:
             errors.append(f"Node '{node_id}' is not connected by any edge in ROUTES_GRAPH_EDGES (orphan node).")
 
